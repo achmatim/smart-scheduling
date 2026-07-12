@@ -47,14 +47,13 @@ class ScheduleExportTest extends TestCase
         $response = $this->actingAs($user)
             ->get(route('schedules.export', [
                 'filter_type' => 'rombel',
-                'filter_id' => $rombel->id,
             ]));
 
         // 3. Verify response
         $response->assertStatus(200);
         $response->assertHeader('Content-Type', 'application/vnd.ms-excel');
-        $response->assertHeader('Content-Disposition', 'attachment; filename="jadwal_rombel_Kelas_VII_A.xls"');
-        $response->assertSeeText('JADWAL PELAJARAN SMP MANGGALA');
-        $response->assertSeeText('Kelas VII A');
+        $response->assertHeader('Content-Disposition', 'attachment; filename="jadwal_keseluruhan_per_kelas.xls"');
+        $response->assertSeeText('JADWAL PELAJARAN KESELURUHAN SMP MANGGALA');
+        $response->assertSeeText('KELAS: VII A');
     }
 }

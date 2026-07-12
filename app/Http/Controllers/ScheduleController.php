@@ -99,51 +99,37 @@ class ScheduleController extends Controller
         }
 
         $filterType = $request->query('filter_type', 'rombel');
-        $filterId = $request->query('filter_id');
 
-        $rombels = Rombel::orderBy('name')->get();
-        $teachers = Teacher::orderBy('name')->get();
-        $rooms = Room::orderBy('code')->get();
+        // Get all schedules for the active academic year
+        $schedules = Schedule::where('academic_year_id', $activeYear->id)
+            ->with(['subject', 'teacher', 'rombel', 'room'])
+            ->get();
 
-        if (!$filterId) {
-            if ($filterType === 'rombel' && $rombels->isNotEmpty()) {
-                $filterId = $rombels->first()->id;
-            } elseif ($filterType === 'teacher' && $teachers->isNotEmpty()) {
-                $filterId = $teachers->first()->id;
-            } elseif ($filterType === 'room' && $rooms->isNotEmpty()) {
-                $filterId = $rooms->first()->id;
-            }
-        }
-
-        $query = Schedule::where('academic_year_id', $activeYear->id);
-        
-        $name = '';
-        if ($filterType === 'rombel') {
-            $query->where('rombel_id', $filterId);
-            $romb = Rombel::find($filterId);
-            $name = $romb ? "Kelas " . $romb->name : "";
-        } elseif ($filterType === 'teacher') {
-            $query->where('teacher_id', $filterId);
-            $teach = Teacher::find($filterId);
-            $name = $teach ? $teach->name : "";
-        } elseif ($filterType === 'room') {
-            $query->where('room_id', $filterId);
-            $rm = Room::find($filterId);
-            $name = $rm ? $rm->code . " - " . $rm->name : "";
-        }
-
-        $schedules = $query->with(['subject', 'teacher', 'rombel', 'room'])->get();
         $periods = \App\Models\Period::orderBy('period_number')->get();
 
-        $filename = "jadwal_" . $filterType . "_" . str_replace([' ', '/', '\\', ':'], '_', $name) . ".xls";
+        $entities = [];
+        $title = '';
+        if ($filterType === 'rombel') {
+            $entities = Rombel::orderBy('name')->get();
+            $title = "Semua Rombongan Belajar (Kelas)";
+            $filename = "jadwal_keseluruhan_per_kelas.xls";
+        } elseif ($filterType === 'teacher') {
+            $entities = Teacher::orderBy('name')->get();
+            $title = "Semua Guru";
+            $filename = "jadwal_keseluruhan_per_guru.xls";
+        } elseif ($filterType === 'room') {
+            $entities = Room::orderBy('code')->get();
+            $title = "Semua Ruangan";
+            $filename = "jadwal_keseluruhan_per_ruangan.xls";
+        }
 
         return response()->view('schedules.excel', compact(
             'activeYear',
             'filterType',
-            'filterId',
-            'name',
             'schedules',
-            'periods'
+            'periods',
+            'entities',
+            'title'
         ))
         ->header('Content-Type', 'application/vnd.ms-excel')
         ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')

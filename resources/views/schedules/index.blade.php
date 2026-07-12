@@ -108,7 +108,7 @@
                     </div>
                 @endif
                 @if($schedules->isNotEmpty())
-                    <a href="{{ route('schedules.export', ['filter_type' => $filterType, 'filter_id' => $filterId]) }}" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                    <a href="{{ route('schedules.export', ['filter_type' => $filterType]) }}" class="btn btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
                         📊 Export ke Excel
                     </a>
                     <button class="btn btn-secondary" onclick="window.print()">🖨️ Cetak Jadwal</button>
