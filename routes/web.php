@@ -10,6 +10,7 @@ use App\Http\Controllers\TeacherAvailabilityController;
 use App\Http\Controllers\LessonController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\PeriodController;
+use App\Http\Controllers\ReportController;
 use Illuminate\Support\Facades\Route;
 
 // Authentication Routes (Guest Access)
@@ -46,6 +47,10 @@ Route::middleware('auth')->group(function () {
     // Lesson Allocations
     Route::resource('lessons', LessonController::class);
 
+    // Reports Menu Routes
+    Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    Route::get('/reports/print', [ReportController::class, 'print'])->name('reports.print');
+    Route::get('/reports/excel', [ReportController::class, 'excel'])->name('reports.excel');
     // Schedule Generation & Viewer
     Route::get('/schedules', [ScheduleController::class, 'index'])->name('schedules.index');
     Route::get('/schedules/export', [ScheduleController::class, 'exportExcel'])->name('schedules.export');
