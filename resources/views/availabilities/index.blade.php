@@ -43,24 +43,40 @@
                         <button type="button" class="btn btn-secondary" onclick="checkAll(false)">Kosongkan Semua</button>
                     </div>
                     
-                    <div class="avail-grid">
+                    <div class="avail-grid" style="grid-template-columns: 160px repeat({{ $periods->count() }}, 1fr);">
                         <!-- Grid Header Column (Time Slots) -->
                         <div class="avail-header">Hari / Jam Ke-</div>
-                        @for($p = 1; $p <= 8; $p++)
-                            <div class="avail-header">Jam {{ $p }}</div>
-                        @endfor
+                        @foreach($periods as $pModel)
+                            <div class="avail-header" style="{{ $pModel->is_break ? 'background-color: #fee2e2; color: #b91c1c;' : '' }}">
+                                Jam {{ $pModel->period_number }}
+                                @if($pModel->is_break)
+                                    <span style="font-size: 10px; display:block; font-weight: normal;">☕ Istirahat</span>
+                                @else
+                                    <span style="font-size: 10px; display:block; font-weight: normal; color:var(--text-muted);">{{ $pModel->start_time }}</span>
+                                @endif
+                            </div>
+                        @endforeach
 
                         <!-- Grid Rows per Day -->
                         @foreach($days as $dayNum => $dayName)
                             <div class="avail-day">{{ $dayName }}</div>
-                            @for($p = 1; $p <= 8; $p++)
-                                <div class="avail-cell">
-                                    <input type="checkbox" class="avail-checkbox" 
-                                           name="slots[{{ $dayNum }}][{{ $p }}]" 
-                                           value="1" 
-                                           {{ isset($availabilities[$dayNum][$p]) && $availabilities[$dayNum][$p] ? 'checked' : '' }}>
-                                </div>
-                            @endfor
+                            @foreach($periods as $pModel)
+                                @php
+                                    $p = $pModel->period_number;
+                                @endphp
+                                @if($pModel->is_break)
+                                    <div class="avail-cell" style="background-color: #fef2f2; color: #b91c1c; font-weight: bold; font-size: 12px;">
+                                        ☕
+                                    </div>
+                                @else
+                                    <div class="avail-cell">
+                                        <input type="checkbox" class="avail-checkbox" 
+                                               name="slots[{{ $dayNum }}][{{ $p }}]" 
+                                               value="1" 
+                                               {{ (!isset($availabilities[$dayNum][$p]) || $availabilities[$dayNum][$p]) ? 'checked' : '' }}>
+                                    </div>
+                                @endif
+                            @endforeach
                         @endforeach
                     </div>
                 </div>

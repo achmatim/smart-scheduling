@@ -250,9 +250,12 @@ class SchedulingEngine
             'conflicts' => $bestConflicts,
         ]);
 
+        $bestEval = $this->evaluateFitness($bestChromosome);
+
         return [
             'fitness' => $bestFitness,
             'conflicts' => $bestConflicts,
+            'soft_conflicts' => $bestEval['soft_conflicts'] ?? 0,
         ];
     }
 
@@ -441,6 +444,9 @@ class SchedulingEngine
         }
 
         // --- SOFT CONSTRAINTS ---
+        $teacherGaps = 0;
+        $rombelGaps = 0;
+
         // 1. Teacher Gaps
         // If a teacher teaches multiple sessions in a day, they shouldn't have idle gaps.
         foreach ($teacherGrid as $teacherId => $days) {
@@ -455,7 +461,7 @@ class SchedulingEngine
                     for ($p = $min; $p <= $max; $p++) {
                         if (in_array($p, $this->breakPeriods)) continue;
                         if (!isset($periods[$p])) {
-                            $softConflicts++;
+                            $teacherGaps++;
                         }
                     }
                 }
@@ -475,7 +481,7 @@ class SchedulingEngine
                     for ($p = $min; $p <= $max; $p++) {
                         if (in_array($p, $this->breakPeriods)) continue;
                         if (!isset($periods[$p])) {
-                            $softConflicts++;
+                            $rombelGaps++;
                         }
                     }
                 }
@@ -483,13 +489,16 @@ class SchedulingEngine
         }
 
         // Calculate fitness
-        // Hard conflicts are weighted heavily (multiplied by 1000). Soft conflicts are weighted lightly.
-        $totalPenalty = ($hardConflicts * 1000) + ($softConflicts * 10);
+        // Hard conflicts are weighted heavily (multiplied by 1000). 
+        // Teacher gaps are penalized heavily (150) to minimize empty slots for teachers.
+        // Rombel gaps are penalized lightly (10).
+        $totalPenalty = ($hardConflicts * 1000) + ($teacherGaps * 150) + ($rombelGaps * 10);
         $fitness = 1.0 / (1.0 + $totalPenalty);
 
         return [
             'fitness' => $fitness,
             'conflicts' => $hardConflicts,
+            'soft_conflicts' => $teacherGaps + $rombelGaps,
         ];
     }
 
@@ -558,10 +567,20 @@ class SchedulingEngine
                         $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
                         $roomId = $validRooms[array_rand($validRooms)];
 
-                        // Check if any period overlaps with a break period
+                        // Check if any period overlaps with a break period or teacher is unavailable
                         $clash = false;
                         for ($offset = 0; $offset < $session['duration']; $offset++) {
-                            if (in_array($startPeriod + $offset, $this->breakPeriods)) {
+                            $period = $startPeriod + $offset;
+
+                            // Check breaks
+                            if (in_array($period, $this->breakPeriods)) {
+                                $clash = true;
+                                break;
+                            }
+
+                            // Check teacher availability
+                            $teacherAvailable = $this->teacherAvail[$session['teacher_id']][$day][$period] ?? true;
+                            if (!$teacherAvailable) {
                                 $clash = true;
                                 break;
                             }

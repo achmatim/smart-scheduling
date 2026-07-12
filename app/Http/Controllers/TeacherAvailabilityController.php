@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Teacher;
 use App\Models\TeacherAvailability;
+use App\Models\Period;
 use Illuminate\Http\Request;
 
 class TeacherAvailabilityController extends Controller
@@ -43,7 +44,10 @@ class TeacherAvailabilityController extends Controller
             5 => 'Jumat'
         ];
 
-        return view('availabilities.index', compact('teachers', 'selectedTeacherId', 'selectedTeacher', 'availabilities', 'days'));
+        // Fetch dynamic periods
+        $periods = Period::orderBy('period_number')->get();
+
+        return view('availabilities.index', compact('teachers', 'selectedTeacherId', 'selectedTeacher', 'availabilities', 'days', 'periods'));
     }
 
     /**
@@ -56,17 +60,28 @@ class TeacherAvailabilityController extends Controller
         // Incoming input: slots[day][period] = "1"
         $slots = $request->input('slots', []);
 
-        // Retrieve all availabilities for this teacher
-        $dbAvail = TeacherAvailability::where('teacher_id', $teacherId)->get();
+        // Fetch all dynamic periods
+        $periods = Period::orderBy('period_number')->get();
 
-        foreach ($dbAvail as $av) {
-            $day = $av->day_of_week;
-            $period = $av->period_number;
+        // Save availabilities dynamically for all days and periods
+        for ($day = 1; $day <= 5; $day++) {
+            foreach ($periods as $p) {
+                $period = $p->period_number;
+                
+                // If it is a break period, it should default to not available (false)
+                $isAvailable = $p->is_break ? false : isset($slots[$day][$period]);
 
-            // Check if this slot was selected/checked
-            $isAvailable = isset($slots[$day][$period]);
-            
-            $av->update(['is_available' => $isAvailable]);
+                TeacherAvailability::updateOrCreate(
+                    [
+                        'teacher_id' => $teacherId,
+                        'day_of_week' => $day,
+                        'period_number' => $period,
+                    ],
+                    [
+                        'is_available' => $isAvailable,
+                    ]
+                );
+            }
         }
 
         return redirect()->route('availabilities.index', ['teacher_id' => $teacherId])
