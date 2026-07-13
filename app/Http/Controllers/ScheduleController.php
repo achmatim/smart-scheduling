@@ -57,6 +57,52 @@ class ScheduleController extends Controller
 
         $schedules = $query->get();
 
+        // Get all schedules to detect clashes across the entire school
+        $allSchedules = Schedule::where('academic_year_id', $activeYear->id)
+            ->with(['rombel', 'teacher', 'room', 'subject'])
+            ->get();
+
+        $clashes = [];
+        if ($allSchedules->isNotEmpty()) {
+            $teacherUsage = [];
+            $rombelUsage = [];
+            $roomUsage = [];
+            $dayNames = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat'];
+
+            foreach ($allSchedules as $s) {
+                $duration = $s->end_period - $s->start_period + 1;
+                for ($offset = 0; $offset < $duration; $offset++) {
+                    $period = $s->start_period + $offset;
+                    $key = "{$s->day_of_week}-{$period}";
+                    $dayName = $dayNames[$s->day_of_week] ?? "Hari {$s->day_of_week}";
+
+                    // Teacher clash
+                    if (isset($teacherUsage[$s->teacher_id][$key])) {
+                        $other = $teacherUsage[$s->teacher_id][$key];
+                        $clashes[] = "Guru <strong>{$s->teacher->name}</strong> bentrok mengajar <strong>{$s->subject->name}</strong> ({$s->rombel->name}) dan <strong>{$other->subject->name}</strong> ({$other->rombel->name}) pada hari {$dayName} jam ke-{$period}.";
+                    } else {
+                        $teacherUsage[$s->teacher_id][$key] = $s;
+                    }
+
+                    // Rombel clash
+                    if (isset($rombelUsage[$s->rombel_id][$key])) {
+                        $other = $rombelUsage[$s->rombel_id][$key];
+                        $clashes[] = "Kelas <strong>{$s->rombel->name}</strong> bentrok menerima pelajaran <strong>{$s->subject->name}</strong> (oleh {$s->teacher->name}) dan <strong>{$other->subject->name}</strong> (oleh {$other->teacher->name}) pada hari {$dayName} jam ke-{$period}.";
+                    } else {
+                        $rombelUsage[$s->rombel_id][$key] = $s;
+                    }
+
+                    // Room clash
+                    if (isset($roomUsage[$s->room_id][$key])) {
+                        $other = $roomUsage[$s->room_id][$key];
+                        $clashes[] = "Ruangan <strong>{$s->room->code}</strong> bentrok ditempati Kelas <strong>{$s->rombel->name}</strong> (pelajaran {$s->subject->name}) dan Kelas <strong>{$other->rombel->name}</strong> (pelajaran {$other->subject->name}) pada hari {$dayName} jam ke-{$period}.";
+                    } else {
+                        $roomUsage[$s->room_id][$key] = $s;
+                    }
+                }
+            }
+        }
+
         // Check if there is a running/pending scheduling job
         $runningJob = SchedulingJob::where('academic_year_id', $activeYear->id)
             ->whereIn('status', ['pending', 'running'])
@@ -84,7 +130,8 @@ class ScheduleController extends Controller
             'runningJob',
             'isLocked',
             'isYearLocked',
-            'periods'
+            'periods',
+            'clashes'
         ));
     }
 

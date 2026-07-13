@@ -180,6 +180,24 @@
             </div>
         </div>
     @else
+        @if(!empty($clashes))
+            <div class="card" style="border: 2px solid var(--danger); background-color: #fef2f2; margin-bottom: 24px;">
+                <div class="card-header" style="background-color: #fee2e2; border-bottom: 1px solid #fecaca; color: #b91c1c; font-weight: 700; display:flex; align-items:center; gap:8px;">
+                    ⚠️ Terdeteksi {{ count($clashes) }} Bentrok Waktu (Clashes) pada Jadwal Aktif
+                </div>
+                <div class="card-body" style="padding: 16px;">
+                    <p style="font-size: 13px; color: #7f1d1d; margin-bottom: 12px; font-weight: 500;">
+                        Bentrok terjadi karena batasan ketersediaan guru atau keterbatasan ruangan yang saling bertabrakan. Silakan sesuaikan Ketersediaan Guru atau Alokasi Mengajar, lalu jalankan optimasi ulang dengan Populasi & Generasi yang lebih tinggi.
+                    </p>
+                    <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #991b1b; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto;">
+                        @foreach($clashes as $clash)
+                            <li>{!! $clash !!}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            </div>
+        @endif
+
         <!-- Grid View -->
         <div class="schedule-grid-container">
             <h4 style="margin-bottom: 20px; font-weight: 600; color: var(--primary);">
@@ -290,17 +308,20 @@
                 <div class="form-group">
                     <label class="form-label" for="pop_size">Ukuran Populasi (Population Size)</label>
                     <select class="form-control" id="pop_size">
-                        <option value="50">50 (Cepat)</option>
-                        <option value="80" selected>80 (Sangat Direkomendasikan)</option>
-                        <option value="120">120 (Sangat Akurat)</option>
+                        <option value="80">80 (Standard)</option>
+                        <option value="120" selected>120 (Direkomendasikan)</option>
+                        <option value="180">180 (Sangat Akurat)</option>
+                        <option value="250">250 (Paling Akurat)</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label class="form-label" for="max_generations">Jumlah Generasi Maksimal</label>
                     <select class="form-control" id="max_generations">
-                        <option value="60">60 Generasi</option>
-                        <option value="100" selected>100 Generasi</option>
+                        <option value="100">100 Generasi (Standard)</option>
                         <option value="150">150 Generasi</option>
+                        <option value="250" selected>250 Generasi (Direkomendasikan)</option>
+                        <option value="400">400 Generasi (Untuk data padat)</option>
+                        <option value="600">600 Generasi (Pencarian Intensif)</option>
                     </select>
                 </div>
             </div>
