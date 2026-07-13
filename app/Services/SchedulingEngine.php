@@ -256,87 +256,104 @@ class SchedulingEngine
             'current_generation' => 0,
         ]);
 
-        // 1. Initialize Population (with CSP Heuristic)
-        $population = $this->initializePopulation();
-
         $bestChromosome = null;
         $bestFitness = -1;
         $bestConflicts = 9999;
 
-        // 2. Evolution Loop
-        for ($generation = 1; $generation <= $this->maxGenerations; $generation++) {
-            // Evaluate fitness
-            $evaluatedPop = [];
-            foreach ($population as $chromosome) {
-                $eval = $this->evaluateFitness($chromosome);
-                $evaluatedPop[] = [
-                    'chromosome' => $chromosome,
-                    'fitness' => $eval['fitness'],
-                    'conflicts' => $eval['conflicts'],
-                ];
+        // Implement Multi-start GA: Up to 3 retries with fresh populations if we can't find 0 conflicts
+        $maxRetries = 3;
+        $generationLimit = $this->maxGenerations;
 
-                if ($eval['fitness'] > $bestFitness) {
-                    $bestFitness = $eval['fitness'];
-                    $bestConflicts = $eval['conflicts'];
-                    $bestChromosome = $chromosome;
-                }
-            }
+        for ($retry = 1; $retry <= $maxRetries; $retry++) {
+            Log::info("Memulai proses penjadwalan (Percobaan $retry dari $maxRetries)...");
+            
+            // 1. Initialize Population (with CSP Heuristic)
+            $population = $this->initializePopulation();
 
-            // Report progress
-            $progress = (int) (($generation / $this->maxGenerations) * 100);
-            $jobModel->update([
-                'progress' => $progress,
-                'current_generation' => $generation,
-                'best_fitness' => $bestFitness,
-                'conflicts' => $bestConflicts,
-            ]);
+            // 2. Evolution Loop
+            for ($generation = 1; $generation <= $generationLimit; $generation++) {
+                // Evaluate fitness
+                $evaluatedPop = [];
+                foreach ($population as $chromosome) {
+                    $eval = $this->evaluateFitness($chromosome);
+                    $evaluatedPop[] = [
+                        'chromosome' => $chromosome,
+                        'fitness' => $eval['fitness'],
+                        'conflicts' => $eval['conflicts'],
+                    ];
 
-            // If we found a perfect solution (0 conflicts), we can stop early!
-            if ($bestConflicts === 0) {
-                Log::info("Solusi optimal tanpa konflik ditemukan pada generasi ke-$generation!");
-                break;
-            }
-
-            // Sort population by fitness descending
-            usort($evaluatedPop, function ($a, $b) {
-                return $b['fitness'] <=> $a['fitness'];
-            });
-
-            // 3. Selection & Reproduction
-            $nextPopulation = [];
-
-            // Elitism: carry over the best ones unchanged
-            for ($i = 0; $i < $this->elitismCount; $i++) {
-                $nextPopulation[] = $evaluatedPop[$i]['chromosome'];
-            }
-
-            // Generate rest of the population
-            while (count($nextPopulation) < $this->popSize) {
-                // Select parents
-                $parent1 = $this->tournamentSelect($evaluatedPop);
-                $parent2 = $this->tournamentSelect($evaluatedPop);
-
-                // Crossover
-                if (mt_rand() / mt_getrandmax() < $this->crossoverRate) {
-                    $children = $this->crossover($parent1, $parent2);
-                    $child1 = $children[0];
-                    $child2 = $children[1];
-                } else {
-                    $child1 = $parent1;
-                    $child2 = $parent2;
+                    if ($eval['fitness'] > $bestFitness) {
+                        $bestFitness = $eval['fitness'];
+                        $bestConflicts = $eval['conflicts'];
+                        $bestChromosome = $chromosome;
+                    }
                 }
 
-                // Mutation
-                $child1 = $this->mutate($child1);
-                $child2 = $this->mutate($child2);
+                // Report progress dynamically across all retries
+                $currentOverallGen = $generation + ($retry - 1) * $generationLimit;
+                $maxOverallGen = $generationLimit * $maxRetries;
+                $progress = (int) (($currentOverallGen / $maxOverallGen) * 95);
 
-                $nextPopulation[] = $child1;
-                if (count($nextPopulation) < $this->popSize) {
-                    $nextPopulation[] = $child2;
+                $jobModel->update([
+                    'progress' => $progress,
+                    'current_generation' => $currentOverallGen,
+                    'best_fitness' => $bestFitness,
+                    'conflicts' => $bestConflicts,
+                ]);
+
+                // If we found a perfect solution (0 conflicts), we can stop early!
+                if ($bestConflicts === 0) {
+                    Log::info("Solusi optimal tanpa konflik ditemukan pada percobaan ke-$retry, generasi ke-$generation!");
+                    break 2; // Break both loops!
                 }
+
+                // Sort population by fitness descending
+                usort($evaluatedPop, function ($a, $b) {
+                    return $b['fitness'] <=> $a['fitness'];
+                });
+
+                // 3. Selection & Reproduction
+                $nextPopulation = [];
+
+                // Elitism: carry over the best ones unchanged
+                for ($i = 0; $i < $this->elitismCount; $i++) {
+                    if (isset($evaluatedPop[$i])) {
+                        $nextPopulation[] = $evaluatedPop[$i]['chromosome'];
+                    }
+                }
+
+                // Generate rest of the population
+                while (count($nextPopulation) < $this->popSize) {
+                    // Select parents
+                    $parent1 = $this->tournamentSelect($evaluatedPop);
+                    $parent2 = $this->tournamentSelect($evaluatedPop);
+
+                    // Crossover
+                    if (mt_rand() / mt_getrandmax() < $this->crossoverRate) {
+                        $children = $this->crossover($parent1, $parent2);
+                        $child1 = $children[0];
+                        $child2 = $children[1];
+                    } else {
+                        $child1 = $parent1;
+                        $child2 = $parent2;
+                    }
+
+                    // Mutation
+                    $child1 = $this->mutate($child1);
+                    $child2 = $this->mutate($child2);
+
+                    $nextPopulation[] = $child1;
+                    if (count($nextPopulation) < $this->popSize) {
+                        $nextPopulation[] = $child2;
+                    }
+                }
+
+                $population = $nextPopulation;
             }
 
-            $population = $nextPopulation;
+            if ($bestConflicts > 0 && $retry < $maxRetries) {
+                Log::warning("Percobaan ke-$retry selesai dengan $bestConflicts konflik. Mencoba mengulang dengan populasi baru...");
+            }
         }
 
         // Save the best schedule to the database
@@ -616,10 +633,10 @@ class SchedulingEngine
         }
 
         // Calculate fitness
-        // Hard conflicts are weighted heavily (multiplied by 1000). 
-        // Teacher gaps are penalized heavily (150) to minimize empty slots for teachers.
-        // Rombel gaps are penalized lightly (10).
-        $totalPenalty = ($hardConflicts * 1000) + ($teacherGaps * 150) + ($rombelGaps * 10);
+        // Hard conflicts are weighted heavily (multiplied by 1,000,000) to ensure absolute prioritization over soft constraints.
+        // Teacher gaps are penalized (100) to minimize empty slots for teachers.
+        // Rombel gaps are penalized (10).
+        $totalPenalty = ($hardConflicts * 1000000) + ($teacherGaps * 100) + ($rombelGaps * 10);
         $fitness = 1.0 / (1.0 + $totalPenalty);
 
         return [
