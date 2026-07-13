@@ -26,9 +26,11 @@ class DashboardController extends Controller
             'subjects' => Subject::count(),
             'rooms' => Room::count(),
             'rombels' => Rombel::count(),
-            'lessons' => Lesson::count(),
-            'schedules' => $activeYear ? Schedule::where('academic_year_id', $activeYear->id)->count() : 0,
-            'is_locked' => $activeYear ? AcademicYear::where('is_active', true)->value('is_locked') : false,
+            'lessons' => $activeYear ? (int) Lesson::where('academic_year_id', $activeYear->id)->sum('total_hours') : 0,
+            'schedules' => $activeYear ? (int) Schedule::where('academic_year_id', $activeYear->id)
+                ->selectRaw('SUM(end_period - start_period + 1) as total_jp')
+                ->value('total_jp') : 0,
+            'is_locked' => $activeYear ? (bool) $activeYear->is_locked : false,
         ];
 
         return view('dashboard', compact('activeYear', 'academicYears', 'stats'));

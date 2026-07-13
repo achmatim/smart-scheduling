@@ -23,7 +23,7 @@
         </div>
         <div class="card-stat" style="grid-column: span 1;">
             <span class="stat-title">Alokasi Mengajar</span>
-            <span class="stat-value">{{ $stats['lessons'] }}</span>
+            <span class="stat-value">{{ $stats['lessons'] }} JP</span>
         </div>
         <div class="card-stat" style="grid-column: span 1;">
             <span class="stat-title">Jadwal Terbentuk</span>
