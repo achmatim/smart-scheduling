@@ -15,6 +15,7 @@
                         <tr>
                             <th>Tingkat / Grade</th>
                             <th>Nama Kelas (Rombel)</th>
+                            <th>Ruangan Kelas (Home Room)</th>
                             <th>Aksi</th>
                         </tr>
                     </thead>
@@ -24,8 +25,17 @@
                                 <td><span class="badge badge-primary">Kelas {{ $rombel->grade }}</span></td>
                                 <td><strong>{{ $rombel->name }}</strong></td>
                                 <td>
+                                    @if($rombel->room)
+                                        <span class="badge badge-success" style="background-color: var(--success-light); color:#065f46; font-size:12px;">
+                                            📍 {{ $rombel->room->code }} ({{ $rombel->room->name }})
+                                        </span>
+                                    @else
+                                        <span style="color:var(--text-muted); font-style:italic;">Belum disetel</span>
+                                    @endif
+                                </td>
+                                <td>
                                     <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;" 
-                                            onclick="openEditModal({{ json_encode($rombel) }})">
+                                             onclick="openEditModal({{ json_encode($rombel) }})">
                                         Edit
                                     </button>
                                     <form action="{{ route('rombels.destroy', $rombel->id) }}" method="POST" style="display:inline;" onsubmit="return confirm('Apakah Anda yakin ingin menghapus rombel ini? Seluruh alokasi mengajar dan jadwal kelas terkait akan terhapus.');">
@@ -37,7 +47,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="3" style="text-align: center; color: var(--text-muted);">Belum ada data Rombel. Silakan tambahkan.</td>
+                                <td colspan="4" style="text-align: center; color: var(--text-muted);">Belum ada data Rombel. Silakan tambahkan.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -67,6 +77,18 @@
                     <div class="form-group">
                         <label class="form-label" for="name">Nama Kelas (Rombel)</label>
                         <input type="text" class="form-control" id="name" name="name" placeholder="Contoh: VII A, VIII B, IX C" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="room_id">Ruangan Kelas (Home Room)</label>
+                        <select class="form-control" id="room_id" name="room_id">
+                            <option value="">-- Pilih Ruangan Kelas --</option>
+                            @foreach($rooms as $room)
+                                <option value="{{ $room->id }}">{{ $room->code }} - {{ $room->name }} ({{ $room->type }})</option>
+                            @endforeach
+                        </select>
+                        <span style="font-size:11px; color:var(--text-muted); margin-top:4px; display:block;">
+                            Menentukan ruangan kelas 1-to-1 yang selalu ditempati untuk kelas umum.
+                        </span>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -100,6 +122,15 @@
                         <label class="form-label" for="edit_name">Nama Kelas (Rombel)</label>
                         <input type="text" class="form-control" id="edit_name" name="name" required>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label" for="edit_room_id">Ruangan Kelas (Home Room)</label>
+                        <select class="form-control" id="edit_room_id" name="room_id">
+                            <option value="">-- Pilih Ruangan Kelas --</option>
+                            @foreach($rooms as $room)
+                                <option value="{{ $room->id }}">{{ $room->code }} - {{ $room->name }} ({{ $room->type }})</option>
+                            @endforeach
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Batal</button>
@@ -123,6 +154,7 @@
         function openEditModal(rombel) {
             document.getElementById('edit_grade').value = rombel.grade;
             document.getElementById('edit_name').value = rombel.name;
+            document.getElementById('edit_room_id').value = rombel.room_id || '';
             
             // Set action URL
             document.getElementById('editForm').action = '/rombels/' + rombel.id;

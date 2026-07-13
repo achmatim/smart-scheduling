@@ -8,6 +8,7 @@ use App\Models\Room;
 use App\Models\Schedule;
 use App\Models\TeacherAvailability;
 use App\Models\SchedulingJob;
+use App\Models\Rombel;
 use Exception;
 use Illuminate\Support\Facades\Log;
 
@@ -15,7 +16,7 @@ class SchedulingEngine
 {
     // GA Configuration
     private $popSize = 100;
-    private $maxGenerations = 100;
+    private $maxGenerations = 250;
     private $crossoverRate = 0.8;
     private $mutationRate = 0.15;
     private $elitismCount = 5;
@@ -24,6 +25,7 @@ class SchedulingEngine
     private $academicYearId;
     private $sessions = []; // All sessions (genes) to schedule
     private $rooms = []; // All rooms
+    private $rombels = []; // All rombels
     private $teacherAvail = []; // Fast lookup teacher availability
     private $validRoomsPerSubjectType = [];
     private $teacherValidSlots = []; // Precalculated valid slots per teacher and duration
@@ -136,6 +138,57 @@ class SchedulingEngine
                     'duration' => $duration,
                     'subject_type' => $lesson->subject->type,
                 ];
+            }
+        }
+
+        // Load rombels
+        $rombelsList = Rombel::all();
+        $this->rombels = [];
+        foreach ($rombelsList as $rombel) {
+            $this->rombels[$rombel->id] = [
+                'id' => $rombel->id,
+                'name' => $rombel->name,
+                'room_id' => $rombel->room_id,
+            ];
+        }
+
+        // Verify teacher availability limits (Allocated JP vs Available Slots)
+        $teacherAllocatedJp = [];
+        foreach ($this->sessions as $session) {
+            $tId = $session['teacher_id'];
+            $teacherAllocatedJp[$tId] = ($teacherAllocatedJp[$tId] ?? 0) + $session['duration'];
+        }
+
+        foreach ($teacherAllocatedJp as $tId => $allocatedJp) {
+            $availableSlotsCount = 0;
+            for ($day = 1; $day <= 5; $day++) {
+                for ($period = 1; $period <= $this->maxPeriods; $period++) {
+                    if (in_array($period, $this->breakPeriods)) continue;
+                    $isAvailable = $this->teacherAvail[$tId][$day][$period] ?? true;
+                    if ($isAvailable) {
+                        $availableSlotsCount++;
+                    }
+                }
+            }
+
+            if ($allocatedJp > $availableSlotsCount) {
+                $teacherName = \App\Models\Teacher::find($tId)->name ?? "ID: $tId";
+                throw new Exception("Gagal memulai: Guru '$teacherName' dialokasikan mengajar $allocatedJp JP, namun hanya memiliki $availableSlotsCount JP waktu bersedia mengajar dalam ketersediaan waktu. Silakan perbarui Ketersediaan Guru atau Alokasi Mengajar.");
+            }
+        }
+
+        // Verify Rombel allocation limits
+        $rombelAllocatedJp = [];
+        foreach ($this->sessions as $session) {
+            $rId = $session['rombel_id'];
+            $rombelAllocatedJp[$rId] = ($rombelAllocatedJp[$rId] ?? 0) + $session['duration'];
+        }
+
+        $maxRombelSlots = (10 - count($this->breakPeriods)) * 5; // e.g. 8 * 5 = 40
+        foreach ($rombelAllocatedJp as $rId => $allocatedJp) {
+            if ($allocatedJp > $maxRombelSlots) {
+                $rombelName = $this->rombels[$rId]['name'] ?? "ID: $rId";
+                throw new Exception("Gagal memulai: Kelas '$rombelName' dialokasikan total $allocatedJp JP, melebihi kapasitas waktu maksimum sekolah ($maxRombelSlots JP per minggu). Silakan kurangi Alokasi Mengajar kelas tersebut.");
             }
         }
 
@@ -306,6 +359,24 @@ class SchedulingEngine
     }
 
     /**
+     * Get valid room IDs for a specific session based on its subject type and Rombel designated room.
+     */
+    private function getValidRoomsForSession(array $session): array
+    {
+        // If subject type is general ('umum'), try to use Rombel's home room
+        if ($session['subject_type'] === 'umum') {
+            $rombelHomeRoomId = $this->rombels[$session['rombel_id']]['room_id'] ?? null;
+            if ($rombelHomeRoomId && isset($this->rooms[$rombelHomeRoomId])) {
+                return [$rombelHomeRoomId];
+            }
+            return $this->validRoomsPerSubjectType['umum'] ?? array_keys($this->rooms);
+        }
+
+        // Special subjects (olahraga -> lapangan, lab -> lab)
+        return $this->validRoomsPerSubjectType[$session['subject_type']] ?? array_keys($this->rooms);
+    }
+
+    /**
      * Initialize population.
      * CSP Heuristic: Try to find conflict-free slots during random assignment.
      */
@@ -322,10 +393,7 @@ class SchedulingEngine
             $roomGrid = [];
 
             foreach ($this->sessions as $session) {
-                $validRooms = $this->validRoomsPerSubjectType[$session['subject_type']] ?? array_keys($this->rooms);
-                if (empty($validRooms)) {
-                    $validRooms = array_keys($this->rooms);
-                }
+                $validRooms = $this->getValidRoomsForSession($session);
 
                 $placed = false;
                 $allowedSlots = $this->teacherValidSlots[$session['teacher_id']][$session['duration']] ?? [];
@@ -611,10 +679,7 @@ class SchedulingEngine
             $idx = $session['session_index'];
 
             if (mt_rand() / mt_getrandmax() < $this->mutationRate) {
-                $validRooms = $this->validRoomsPerSubjectType[$session['subject_type']] ?? array_keys($this->rooms);
-                if (empty($validRooms)) {
-                    $validRooms = array_keys($this->rooms);
-                }
+                $validRooms = $this->getValidRoomsForSession($session);
 
                 $allowedSlots = $this->teacherValidSlots[$session['teacher_id']][$session['duration']] ?? [];
 

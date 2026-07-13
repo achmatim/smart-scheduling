@@ -164,4 +164,39 @@ class SchedulingEngineTest extends TestCase
             }
         }
     }
+
+    /**
+     * Test that Rombel designated room is respected for general subjects.
+     */
+    public function test_rombel_designated_room_is_respected_for_general_subjects(): void
+    {
+        $this->seed(SchoolDataSeeder::class);
+        $activeYear = AcademicYear::where('is_active', true)->first();
+
+        $engine = new SchedulingEngine($activeYear->id);
+        $engine->loadData();
+
+        $refEngine = new \ReflectionClass(SchedulingEngine::class);
+        
+        $sessionsProp = $refEngine->getProperty('sessions');
+        $sessionsProp->setAccessible(true);
+        $sessions = $sessionsProp->getValue($engine);
+
+        $getValidRoomsMethod = $refEngine->getMethod('getValidRoomsForSession');
+        $getValidRoomsMethod->setAccessible(true);
+
+        foreach ($sessions as $session) {
+            // Find the Rombel
+            $rombel = \App\Models\Rombel::find($session['rombel_id']);
+            
+            // Invoke getValidRoomsForSession
+            $validRooms = $getValidRoomsMethod->invokeArgs($engine, [$session]);
+
+            if ($session['subject_type'] === 'umum') {
+                // Should only contain the designated room of the rombel
+                $this->assertCount(1, $validRooms);
+                $this->assertEquals($rombel->room_id, $validRooms[0]);
+            }
+        }
+    }
 }

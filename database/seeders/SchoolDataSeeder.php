@@ -89,23 +89,30 @@ class SchoolDataSeeder extends Seeder
             ['code' => 'LAP-OLA', 'name' => 'Lapangan Olahraga', 'type' => 'lapangan', 'capacity' => 100],
         ];
 
+        $roomsMap = [];
         foreach ($roomsData as $r) {
-            Room::create($r);
+            $room = Room::create($r);
+            $roomsMap[$r['code']] = $room->id;
         }
 
         // 5. Rombels
         $rombelsData = [
-            ['name' => 'VII A', 'grade' => 7],
-            ['name' => 'VII B', 'grade' => 7],
-            ['name' => 'VIII A', 'grade' => 8],
-            ['name' => 'VIII B', 'grade' => 8],
-            ['name' => 'IX A', 'grade' => 9],
-            ['name' => 'IX B', 'grade' => 9],
+            ['name' => 'VII A', 'grade' => 7, 'room_code' => 'R-7A'],
+            ['name' => 'VII B', 'grade' => 7, 'room_code' => 'R-7B'],
+            ['name' => 'VIII A', 'grade' => 8, 'room_code' => 'R-8A'],
+            ['name' => 'VIII B', 'grade' => 8, 'room_code' => 'R-8B'],
+            ['name' => 'IX A', 'grade' => 9, 'room_code' => 'R-9A'],
+            ['name' => 'IX B', 'grade' => 9, 'room_code' => 'R-9B'],
         ];
 
         $rombels = [];
         foreach ($rombelsData as $rm) {
-            $rombels[] = Rombel::create($rm);
+            $roomCode = $rm['room_code'];
+            $rombels[] = Rombel::create([
+                'name' => $rm['name'],
+                'grade' => $rm['grade'],
+                'room_id' => $roomsMap[$roomCode] ?? null,
+            ]);
         }
 
         // 6. Teacher Availabilities
