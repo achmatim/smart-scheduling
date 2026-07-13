@@ -26,6 +26,7 @@ class SchedulingEngine
     private $rooms = []; // All rooms
     private $teacherAvail = []; // Fast lookup teacher availability
     private $validRoomsPerSubjectType = [];
+    private $teacherValidSlots = []; // Precalculated valid slots per teacher and duration
 
     // Working days and periods
     private $maxDays = 5; // Monday - Friday (1 - 5)
@@ -53,6 +54,7 @@ class SchedulingEngine
         $this->rooms = [];
         $this->teacherAvail = [];
         $this->validRoomsPerSubjectType = [];
+        $this->teacherValidSlots = [];
 
         // Load active academic year
         $ay = AcademicYear::findOrFail($this->academicYearId);
@@ -134,6 +136,50 @@ class SchedulingEngine
                     'duration' => $duration,
                     'subject_type' => $lesson->subject->type,
                 ];
+            }
+        }
+
+        // Pre-calculate valid slots per teacher and duration
+        $teacherIds = array_unique(array_column($this->sessions, 'teacher_id'));
+        foreach ($teacherIds as $teacherId) {
+            $this->teacherValidSlots[$teacherId] = [];
+            for ($d = 1; $d <= 10; $d++) {
+                $slots = [];
+                for ($day = 1; $day <= $this->maxDays; $day++) {
+                    $validStartsForDuration = $this->validStarts[$d] ?? [];
+                    foreach ($validStartsForDuration as $startPeriod) {
+                        $available = true;
+                        for ($offset = 0; $offset < $d; $offset++) {
+                            $period = $startPeriod + $offset;
+                            $teacherAvailable = $this->teacherAvail[$teacherId][$day][$period] ?? true;
+                            if (!$teacherAvailable) {
+                                $available = false;
+                                break;
+                            }
+                        }
+                        if ($available) {
+                            $slots[] = [
+                                'day' => $day,
+                                'start_period' => $startPeriod,
+                            ];
+                        }
+                    }
+                }
+
+                // Fallback to all valid starts if no slots match teacher availability
+                if (empty($slots)) {
+                    for ($day = 1; $day <= $this->maxDays; $day++) {
+                        $validStartsForDuration = $this->validStarts[$d] ?? [];
+                        foreach ($validStartsForDuration as $startPeriod) {
+                            $slots[] = [
+                                'day' => $day,
+                                'start_period' => $startPeriod,
+                            ];
+                        }
+                    }
+                }
+
+                $this->teacherValidSlots[$teacherId][$d] = $slots;
             }
         }
     }
@@ -282,12 +328,19 @@ class SchedulingEngine
                 }
 
                 $placed = false;
+                $allowedSlots = $this->teacherValidSlots[$session['teacher_id']][$session['duration']] ?? [];
+
                 // CSP Heuristic: Try 15 times to place session in a clash-free slot
                 for ($attempt = 0; $attempt < 15; $attempt++) {
-                    $day = mt_rand(1, $this->maxDays);
-                    // Select a start period that does not overlap with breaks
-                    $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
-                    $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                    if (empty($allowedSlots)) {
+                        $day = mt_rand(1, $this->maxDays);
+                        $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
+                        $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                    } else {
+                        $randomSlot = $allowedSlots[array_rand($allowedSlots)];
+                        $day = $randomSlot['day'];
+                        $startPeriod = $randomSlot['start_period'];
+                    }
                     $roomId = $validRooms[array_rand($validRooms)];
 
                     // Check local clashes with already placed sessions
@@ -347,9 +400,15 @@ class SchedulingEngine
 
                 // If failed to find a conflict-free slot, place randomly
                 if (!$placed) {
-                    $day = mt_rand(1, $this->maxDays);
-                    $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
-                    $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                    if (empty($allowedSlots)) {
+                        $day = mt_rand(1, $this->maxDays);
+                        $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
+                        $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                    } else {
+                        $randomSlot = $allowedSlots[array_rand($allowedSlots)];
+                        $day = $randomSlot['day'];
+                        $startPeriod = $randomSlot['start_period'];
+                    }
                     $roomId = $validRooms[array_rand($validRooms)];
 
                     $chromosome[$session['session_index']] = [
@@ -557,14 +616,22 @@ class SchedulingEngine
                     $validRooms = array_keys($this->rooms);
                 }
 
+                $allowedSlots = $this->teacherValidSlots[$session['teacher_id']][$session['duration']] ?? [];
+
                 // Smart Mutation (CSP-like local optimization)
                 if (mt_rand() / mt_getrandmax() < 0.40) {
                     // Try to find a conflict-free spot for this single session
                     $placed = false;
                     for ($attempt = 0; $attempt < 10; $attempt++) {
-                        $day = mt_rand(1, $this->maxDays);
-                        $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
-                        $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                        if (empty($allowedSlots)) {
+                            $day = mt_rand(1, $this->maxDays);
+                            $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
+                            $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                        } else {
+                            $randomSlot = $allowedSlots[array_rand($allowedSlots)];
+                            $day = $randomSlot['day'];
+                            $startPeriod = $randomSlot['start_period'];
+                        }
                         $roomId = $validRooms[array_rand($validRooms)];
 
                         // Check if any period overlaps with a break period or teacher is unavailable
@@ -631,9 +698,15 @@ class SchedulingEngine
 
                     // If smart placement fails, fallback to standard random mutation
                     if (!$placed) {
-                        $day = mt_rand(1, $this->maxDays);
-                        $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
-                        $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                        if (empty($allowedSlots)) {
+                            $day = mt_rand(1, $this->maxDays);
+                            $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
+                            $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                        } else {
+                            $randomSlot = $allowedSlots[array_rand($allowedSlots)];
+                            $day = $randomSlot['day'];
+                            $startPeriod = $randomSlot['start_period'];
+                        }
                         $roomId = $validRooms[array_rand($validRooms)];
 
                         $chromosome[$idx] = [
@@ -644,9 +717,15 @@ class SchedulingEngine
                     }
                 } else {
                     // Standard Random Mutation
-                    $day = mt_rand(1, $this->maxDays);
-                    $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
-                    $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                    if (empty($allowedSlots)) {
+                        $day = mt_rand(1, $this->maxDays);
+                        $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
+                        $startPeriod = $validStartsForDuration[array_rand($validStartsForDuration)];
+                    } else {
+                        $randomSlot = $allowedSlots[array_rand($allowedSlots)];
+                        $day = $randomSlot['day'];
+                        $startPeriod = $randomSlot['start_period'];
+                    }
                     $roomId = $validRooms[array_rand($validRooms)];
 
                     $chromosome[$idx] = [

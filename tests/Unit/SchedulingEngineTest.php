@@ -99,4 +99,69 @@ class SchedulingEngineTest extends TestCase
         $this->assertGreaterThan(0, $eval['conflicts']);
         $this->assertLessThan(1.0, $eval['fitness']);
     }
+
+    /**
+     * Test that teacher availability constraint is strictly satisfied.
+     */
+    public function test_teacher_availability_constraint_is_never_violated(): void
+    {
+        $this->seed(SchoolDataSeeder::class);
+        $activeYear = AcademicYear::where('is_active', true)->first();
+
+        // Let's pick a teacher and make them unavailable on Day 1, periods 6, 7, and 8.
+        $teacher = Teacher::first();
+        TeacherAvailability::where('teacher_id', $teacher->id)
+            ->where('day_of_week', 1)
+            ->whereIn('period_number', [6, 7, 8])
+            ->update(['is_available' => false]);
+
+        $engine = new SchedulingEngine($activeYear->id);
+        $engine->loadData();
+
+        // 1. Verify via Reflection that $teacherValidSlots does not contain periods 6, 7, 8 for duration 1 or 2
+        $refEngine = new \ReflectionClass(SchedulingEngine::class);
+        $slotsProp = $refEngine->getProperty('teacherValidSlots');
+        $slotsProp->setAccessible(true);
+        $teacherValidSlots = $slotsProp->getValue($engine);
+
+        $this->assertArrayHasKey($teacher->id, $teacherValidSlots);
+
+        // For duration 2 on Day 1:
+        // Periods 6, 7, 8 are unavailable.
+        // Valid starts (from validStarts for duration 2):
+        // Break is period 5 (istirahat) and 8 (istirahat).
+        // Let's check which starts on Day 1 are in teacherValidSlots for duration 2.
+        // It must NOT contain start_period 5 (break), 6 (6-7 overlaps with 6,7 unavailable), 7 (7-8 overlaps with 7,8 unavailable), 8 (break).
+        $dur2Slots = $teacherValidSlots[$teacher->id][2] ?? [];
+        foreach ($dur2Slots as $slot) {
+            if ($slot['day'] === 1) {
+                $this->assertNotContains($slot['start_period'], [5, 6, 7, 8]);
+            }
+        }
+
+        // 2. Run the engine's initializePopulation and verify that in ALL chromosomes,
+        // this teacher is never scheduled at unavailable periods.
+        $initPopProp = $refEngine->getMethod('initializePopulation');
+        $initPopProp->setAccessible(true);
+        $population = $initPopProp->invoke($engine);
+
+        $sessionsProp = $refEngine->getProperty('sessions');
+        $sessionsProp->setAccessible(true);
+        $sessions = $sessionsProp->getValue($engine);
+
+        foreach ($population as $chromosome) {
+            foreach ($sessions as $session) {
+                if ($session['teacher_id'] === $teacher->id) {
+                    $gene = $chromosome[$session['session_index']];
+                    if ($gene['day'] === 1) {
+                        $start = $gene['start_period'];
+                        $end = $start + $session['duration'] - 1;
+                        for ($p = $start; $p <= $end; $p++) {
+                            $this->assertNotContains($p, [6, 7, 8], "Teacher scheduled at unavailable period {$p} on Day 1");
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
