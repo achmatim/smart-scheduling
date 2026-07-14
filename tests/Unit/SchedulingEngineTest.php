@@ -199,4 +199,71 @@ class SchedulingEngineTest extends TestCase
             }
         }
     }
+
+    /**
+     * Test that same-day subject constraint is detected and penalized.
+     */
+    public function test_same_day_subject_constraint_is_enforced(): void
+    {
+        $this->seed(SchoolDataSeeder::class);
+        $activeYear = AcademicYear::where('is_active', true)->first();
+
+        $engine = new SchedulingEngine($activeYear->id);
+        $engine->loadData();
+
+        $refEngine = new \ReflectionClass(SchedulingEngine::class);
+        
+        $sessionsProp = $refEngine->getProperty('sessions');
+        $sessionsProp->setAccessible(true);
+        $sessions = $sessionsProp->getValue($engine);
+
+        // Find two sessions for the same Rombel and same Subject (e.g. VII A Math)
+        $sameSubjectSessions = [];
+
+        foreach ($sessions as $session) {
+            $key = "{$session['rombel_id']}-{$session['subject_id']}";
+            $sameSubjectSessions[$key][] = $session;
+        }
+
+        $chosenPair = [];
+        foreach ($sameSubjectSessions as $key => $list) {
+            if (count($list) >= 2) {
+                $chosenPair = [$list[0], $list[1]];
+                break;
+            }
+        }
+
+        $this->assertNotEmpty($chosenPair, "Must have at least one split subject with multiple sessions");
+
+        // Construct a chromosome where these two same-subject sessions are scheduled on the SAME DAY
+        $chromosome = [];
+        $firstRoom = Room::first();
+
+        // Initialize all sessions to different days to isolate the clash
+        foreach ($sessions as $session) {
+            $chromosome[$session['session_index']] = [
+                'day' => ($session['session_index'] % 5) + 1,
+                'start_period' => 1,
+                'room_id' => $firstRoom->id,
+            ];
+        }
+
+        // Force the chosen pair to be on Day 1, in different non-overlapping slots (Period 1 and Period 3)
+        $chromosome[$chosenPair[0]['session_index']] = [
+            'day' => 1,
+            'start_period' => 1,
+            'room_id' => $firstRoom->id,
+        ];
+        $chromosome[$chosenPair[1]['session_index']] = [
+            'day' => 1,
+            'start_period' => 3,
+            'room_id' => $firstRoom->id,
+        ];
+
+        // Evaluate fitness
+        $eval = $engine->evaluateFitness($chromosome);
+
+        // Same-day subject clash must be detected (conflicts count > 0)
+        $this->assertGreaterThan(0, $eval['conflicts'], "Same-day subject duplicate not detected as conflict");
+    }
 }

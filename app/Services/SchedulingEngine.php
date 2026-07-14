@@ -607,6 +607,7 @@ class SchedulingEngine
         $teacherGrid = [];
         $rombelGrid = [];
         $roomGrid = [];
+        $rombelSubjectDayGrid = [];
 
         $hardConflicts = 0;
         $softConflicts = 0;
@@ -617,6 +618,13 @@ class SchedulingEngine
             $startPeriod = $gene['start_period'];
             $roomId = $gene['room_id'];
             $duration = $session['duration'];
+
+            // Same-day subject constraint (Hard Constraint)
+            if (isset($rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day])) {
+                $hardConflicts++;
+            } else {
+                $rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day] = $session['session_index'];
+            }
 
             // 1. Check Period Overflow (Hard Constraint)
             if ($startPeriod + $duration - 1 > $this->maxPeriods) {
@@ -1027,6 +1035,7 @@ class SchedulingEngine
         $teacherGrid = [];
         $rombelGrid = [];
         $roomGrid = [];
+        $rombelSubjectDayGrid = [];
 
         foreach ($this->sessions as $session) {
             $idx = $session['session_index'];
@@ -1035,6 +1044,13 @@ class SchedulingEngine
             $startPeriod = $gene['start_period'];
             $roomId = $gene['room_id'];
             $duration = $session['duration'];
+
+            // Same-day subject constraint (Hard Constraint)
+            if (isset($rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day])) {
+                $hardConflicts++;
+            } else {
+                $rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day] = $idx;
+            }
 
             // Room Type constraint
             $room = $this->rooms[$roomId] ?? null;
@@ -1093,6 +1109,7 @@ class SchedulingEngine
         $teacherGrid = [];
         $rombelGrid = [];
         $roomGrid = [];
+        $rombelSubjectDayGrid = [];
 
         foreach ($this->sessions as $session) {
             $idx = $session['session_index'];
@@ -1101,6 +1118,14 @@ class SchedulingEngine
             $startPeriod = $gene['start_period'];
             $roomId = $gene['room_id'];
             $duration = $session['duration'];
+
+            // Same-day subject constraint (Hard Constraint)
+            if (isset($rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day])) {
+                $conflictedSessionIndices[$idx] = true;
+                $conflictedSessionIndices[$rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day]] = true;
+            } else {
+                $rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day] = $idx;
+            }
 
             $room = $this->rooms[$roomId] ?? null;
             if ($room) {

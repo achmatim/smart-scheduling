@@ -67,14 +67,25 @@ class ScheduleController extends Controller
             $teacherUsage = [];
             $rombelUsage = [];
             $roomUsage = [];
+            $rombelSubjectDayUsage = [];
             $dayNames = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat'];
 
             foreach ($allSchedules as $s) {
+                $dayName = $dayNames[$s->day_of_week] ?? "Hari {$s->day_of_week}";
+
+                // Same-day subject clash detection
+                $subjKey = "{$s->rombel_id}-{$s->subject_id}-{$s->day_of_week}";
+                if (isset($rombelSubjectDayUsage[$subjKey])) {
+                    $other = $rombelSubjectDayUsage[$subjKey];
+                    $clashes[] = "Kelas <strong>{$s->rombel->name}</strong> memiliki mata pelajaran <strong>{$s->subject->name}</strong> pada dua slot berbeda di hari {$dayName} (Jam ke-{$s->start_period} dan Jam ke-{$other->start_period}).";
+                } else {
+                    $rombelSubjectDayUsage[$subjKey] = $s;
+                }
+
                 $duration = $s->end_period - $s->start_period + 1;
                 for ($offset = 0; $offset < $duration; $offset++) {
                     $period = $s->start_period + $offset;
                     $key = "{$s->day_of_week}-{$period}";
-                    $dayName = $dayNames[$s->day_of_week] ?? "Hari {$s->day_of_week}";
 
                     // Teacher clash
                     if (isset($teacherUsage[$s->teacher_id][$key])) {
