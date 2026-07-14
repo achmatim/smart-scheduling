@@ -180,7 +180,33 @@
             </div>
         </div>
     @else
-        @if(!empty($clashes))
+        @if($totalAllocatedJp > $weeklyCapacity)
+            <div class="card" style="border: 2px solid #ea580c; background-color: #fff7ed; margin-bottom: 24px;">
+                <div class="card-header" style="background-color: #ffedd5; border-bottom: 1px solid #fed7aa; color: #c2410c; font-weight: 700; display:flex; align-items:center; gap:8px;">
+                    🚨 Kapasitas Jadwal Sekolah Melebihi Batas (Kebutuhan: {{ $totalAllocatedJp }} JP > Kapasitas Ketersediaan: {{ $weeklyCapacity }} JP)
+                </div>
+                <div class="card-body" style="padding: 16px;">
+                    <p style="font-size: 13px; color: #7c2d12; margin-bottom: 12px; font-weight: 600;">
+                        Jadwal secara matematis <strong>mustahil disusun dengan 0 bentrok</strong> karena total kebutuhan beban jam pelajaran ({{ $totalAllocatedJp }} JP) melebihi batas slot waktu yang bersedia dari ketersediaan guru ({{ $weeklyCapacity }} JP). 
+                    </p>
+                    <p style="font-size: 13px; color: #7c2d12; margin-bottom: 12px;">
+                        Berikut adalah daftar slot waktu bottleneck (di mana guru yang bersedia kurang dari {{ $rombels->count() }} orang). Silakan buka status ketersediaan waktu mengajar mereka untuk mengatasi bottleneck ini:
+                    </p>
+                    <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #9a3412; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; margin-bottom: 12px;">
+                        @foreach($bottlenecks as $b)
+                            @if($b['day'] === 'Jumat' && $b['period'] >= 9)
+                                <li>Hari <strong>{{ $b['day'] }} Jam ke-{{ $b['period'] }}</strong>: Waktu tutup sekolah (seluruh guru tidak bersedia).</li>
+                            @else
+                                <li>Hari <strong>{{ $b['day'] }} Jam ke-{{ $b['period'] }}</strong>: Hanya {{ $b['available'] }} guru bersedia (butuh {{ $b['needed'] }}). Guru tidak bersedia: <em style="color:#b45309;">{{ implode(', ', $b['unavailable_teachers']) }}</em></li>
+                            @endif
+                        @endforeach
+                    </ul>
+                    <p style="font-size: 12px; color: #9a3412; font-style: italic; margin: 0;">
+                        Tips: Buka status bersedia mengajar untuk guru-guru di atas pada hari Rabu/Kamis Jam ke-9 & 10 agar AI dapat menyusun jadwal dengan sempurna.
+                    </p>
+                </div>
+            </div>
+        @elseif(!empty($clashes))
             <div class="card" style="border: 2px solid var(--danger); background-color: #fef2f2; margin-bottom: 24px;">
                 <div class="card-header" style="background-color: #fee2e2; border-bottom: 1px solid #fecaca; color: #b91c1c; font-weight: 700; display:flex; align-items:center; gap:8px;">
                     ⚠️ Terdeteksi {{ count($clashes) }} Bentrok Waktu (Clashes) pada Jadwal Aktif

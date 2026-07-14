@@ -103,6 +103,54 @@ class ScheduleController extends Controller
             }
         }
 
+        $periods = \App\Models\Period::orderBy('period_number')->get();
+
+        // Calculate weekly capacity and bottlenecks based on teacher availability
+        $rombelsCount = $rombels->count();
+        $weeklyCapacity = 0;
+        $bottlenecks = [];
+        $dayNames = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat'];
+
+        if ($rombelsCount > 0 && $periods->isNotEmpty()) {
+            $teacherAvail = [];
+            $availRecords = \App\Models\TeacherAvailability::all();
+            foreach ($availRecords as $ar) {
+                $teacherAvail[$ar->teacher_id][$ar->day_of_week][$ar->period_number] = $ar->is_available;
+            }
+
+            foreach ($dayNames as $dayNum => $dayName) {
+                foreach ($periods as $pModel) {
+                    if ($pModel->is_break) continue;
+                    
+                    $availableCount = 0;
+                    $unavailableTeachers = [];
+                    foreach ($teachers as $t) {
+                        $isAvailable = $teacherAvail[$t->id][$dayNum][$pModel->period_number] ?? true;
+                        if ($isAvailable) {
+                            $availableCount++;
+                        } else {
+                            $unavailableTeachers[] = $t->name;
+                        }
+                    }
+
+                    $effectiveSlots = min($rombelsCount, $availableCount);
+                    $weeklyCapacity += $effectiveSlots;
+
+                    if ($availableCount < $rombelsCount) {
+                        $bottlenecks[] = [
+                            'day' => $dayName,
+                            'period' => $pModel->period_number,
+                            'available' => $availableCount,
+                            'needed' => $rombelsCount,
+                            'unavailable_teachers' => $unavailableTeachers,
+                        ];
+                    }
+                }
+            }
+        }
+
+        $totalAllocatedJp = \App\Models\Lesson::where('academic_year_id', $activeYear->id)->sum('total_hours');
+
         // Check if there is a running/pending scheduling job
         $runningJob = SchedulingJob::where('academic_year_id', $activeYear->id)
             ->whereIn('status', ['pending', 'running'])
@@ -117,8 +165,6 @@ class ScheduleController extends Controller
         // Check if academic year itself is locked
         $isYearLocked = $activeYear->is_locked;
 
-        $periods = \App\Models\Period::orderBy('period_number')->get();
-
         return view('schedules.index', compact(
             'activeYear',
             'rombels',
@@ -131,7 +177,10 @@ class ScheduleController extends Controller
             'isLocked',
             'isYearLocked',
             'periods',
-            'clashes'
+            'clashes',
+            'weeklyCapacity',
+            'totalAllocatedJp',
+            'bottlenecks'
         ));
     }
 

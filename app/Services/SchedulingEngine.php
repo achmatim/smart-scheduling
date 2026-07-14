@@ -235,6 +235,63 @@ class SchedulingEngine
                 $this->teacherValidSlots[$teacherId][$d] = $slots;
             }
         }
+
+        // Sort sessions based on:
+        // 1. Teacher Availability Count ascending (least availability first - MRV priority)
+        // 2. Flexibility (availableCount - allocatedJp) ascending (highly constrained / zero flexibility first)
+        // 3. Duration descending (longer sessions first)
+        $teacherAvailabilityCounts = [];
+        $teacherAllocatedJp = [];
+        $teacherIds = array_unique(array_column($this->sessions, 'teacher_id'));
+
+        // Calculate total allocated JP per teacher
+        foreach ($this->sessions as $session) {
+            $tId = $session['teacher_id'];
+            $teacherAllocatedJp[$tId] = ($teacherAllocatedJp[$tId] ?? 0) + $session['duration'];
+        }
+
+        // Calculate availability counts and flexibility per teacher
+        $teacherFlexibility = [];
+        foreach ($teacherIds as $teacherId) {
+            $availableCount = 0;
+            for ($day = 1; $day <= 5; $day++) {
+                for ($period = 1; $period <= $this->maxPeriods; $period++) {
+                    if (in_array($period, $this->breakPeriods)) continue;
+                    $isAvailable = $this->teacherAvail[$teacherId][$day][$period] ?? true;
+                    if ($isAvailable) {
+                        $availableCount++;
+                    }
+                }
+            }
+            $teacherAvailabilityCounts[$teacherId] = $availableCount;
+            
+            $allocated = $teacherAllocatedJp[$teacherId] ?? 0;
+            $teacherFlexibility[$teacherId] = $availableCount - $allocated;
+        }
+
+        usort($this->sessions, function ($a, $b) use ($teacherAvailabilityCounts, $teacherFlexibility) {
+            $availA = $teacherAvailabilityCounts[$a['teacher_id']] ?? 40;
+            $availB = $teacherAvailabilityCounts[$b['teacher_id']] ?? 40;
+
+            if ($availA !== $availB) {
+                return $availA <=> $availB; // Less availability count first (MRV priority)
+            }
+
+            $flexA = $teacherFlexibility[$a['teacher_id']] ?? 40;
+            $flexB = $teacherFlexibility[$b['teacher_id']] ?? 40;
+
+            if ($flexA !== $flexB) {
+                return $flexA <=> $flexB; // Less flexibility first
+            }
+
+            return $b['duration'] <=> $a['duration']; // Longer duration first
+        });
+
+        // Re-assign session_index sequentially to match the new sorted array index!
+        foreach ($this->sessions as $idx => &$session) {
+            $session['session_index'] = $idx;
+        }
+        unset($session);
     }
 
     /**
@@ -312,6 +369,26 @@ class SchedulingEngine
                     return $b['fitness'] <=> $a['fitness'];
                 });
 
+                // Repair the best chromosome using Min-Conflicts Local Search
+                $bestChrom = $evaluatedPop[0]['chromosome'];
+                $repairedChrom = $this->repairChromosome($bestChrom, 250); // 250 steps is very fast for a single chromosome!
+                
+                // If it was modified and improved, update its evaluation in the population
+                if ($repairedChrom !== $bestChrom) {
+                    $eval = $this->evaluateFitness($repairedChrom);
+                    $evaluatedPop[0] = [
+                        'chromosome' => $repairedChrom,
+                        'fitness' => $eval['fitness'],
+                        'conflicts' => $eval['conflicts'],
+                    ];
+                    
+                    if ($eval['fitness'] > $bestFitness) {
+                        $bestFitness = $eval['fitness'];
+                        $bestConflicts = $eval['conflicts'];
+                        $bestChromosome = $repairedChrom;
+                    }
+                }
+
                 // 3. Selection & Reproduction
                 $nextPopulation = [];
 
@@ -380,9 +457,10 @@ class SchedulingEngine
      */
     private function getValidRoomsForSession(array $session): array
     {
+        $rombelHomeRoomId = $this->rombels[$session['rombel_id']]['room_id'] ?? null;
+
         // If subject type is general ('umum'), try to use Rombel's home room
         if ($session['subject_type'] === 'umum') {
-            $rombelHomeRoomId = $this->rombels[$session['rombel_id']]['room_id'] ?? null;
             if ($rombelHomeRoomId && isset($this->rooms[$rombelHomeRoomId])) {
                 return [$rombelHomeRoomId];
             }
@@ -390,7 +468,17 @@ class SchedulingEngine
         }
 
         // Special subjects (olahraga -> lapangan, lab -> lab)
-        return $this->validRoomsPerSubjectType[$session['subject_type']] ?? array_keys($this->rooms);
+        $hasSpecialRooms = !empty($this->validRoomsPerSubjectType[$session['subject_type']]);
+        if ($hasSpecialRooms) {
+            return $this->validRoomsPerSubjectType[$session['subject_type']];
+        }
+
+        // Fallback to home room if no specialized rooms exist in the database
+        if ($rombelHomeRoomId && isset($this->rooms[$rombelHomeRoomId])) {
+            return [$rombelHomeRoomId];
+        }
+
+        return array_keys($this->rooms);
     }
 
     /**
@@ -539,10 +627,13 @@ class SchedulingEngine
             // 2. Room Type constraint (satisfied by construction, but let's double check)
             $room = $this->rooms[$roomId] ?? null;
             if ($room) {
-                if ($session['subject_type'] === 'lab' && $room['type'] !== 'lab') {
+                $hasLabRooms = !empty($this->validRoomsPerSubjectType['lab']);
+                $hasLapanganRooms = !empty($this->validRoomsPerSubjectType['olahraga']);
+
+                if ($session['subject_type'] === 'lab' && $hasLabRooms && $room['type'] !== 'lab') {
                     $hardConflicts += 2;
                 }
-                if ($session['subject_type'] === 'olahraga' && $room['type'] !== 'lapangan') {
+                if ($session['subject_type'] === 'olahraga' && $hasLapanganRooms && $room['type'] !== 'lapangan') {
                     $hardConflicts += 2;
                 }
             } else {
@@ -632,17 +723,31 @@ class SchedulingEngine
             }
         }
 
+        // 3. Class Start Gaps (Rombel should start at Period 1 if they have lessons that day)
+        $rombelStartGaps = 0;
+        foreach ($rombelGrid as $rombelId => $days) {
+            foreach ($days as $day => $periods) {
+                if (!empty($periods)) {
+                    $min = min(array_keys($periods));
+                    if ($min > 1) {
+                        $rombelStartGaps += ($min - 1);
+                    }
+                }
+            }
+        }
+
         // Calculate fitness
         // Hard conflicts are weighted heavily (multiplied by 1,000,000) to ensure absolute prioritization over soft constraints.
         // Teacher gaps are penalized (100) to minimize empty slots for teachers.
         // Rombel gaps are penalized (10).
-        $totalPenalty = ($hardConflicts * 1000000) + ($teacherGaps * 100) + ($rombelGaps * 10);
+        // Rombel start gaps are penalized (5) to encourage starting at Jam 1.
+        $totalPenalty = ($hardConflicts * 1000000) + ($teacherGaps * 100) + ($rombelGaps * 10) + ($rombelStartGaps * 5);
         $fitness = 1.0 / (1.0 + $totalPenalty);
 
         return [
             'fitness' => $fitness,
             'conflicts' => $hardConflicts,
-            'soft_conflicts' => $teacherGaps + $rombelGaps,
+            'soft_conflicts' => $teacherGaps + $rombelGaps + $rombelStartGaps,
         ];
     }
 
@@ -701,7 +806,7 @@ class SchedulingEngine
                 $allowedSlots = $this->teacherValidSlots[$session['teacher_id']][$session['duration']] ?? [];
 
                 // Smart Mutation (CSP-like local optimization)
-                if (mt_rand() / mt_getrandmax() < 0.40) {
+                if (mt_rand() / mt_getrandmax() < 0.80) {
                     // Try to find a conflict-free spot for this single session
                     $placed = false;
                     for ($attempt = 0; $attempt < 10; $attempt++) {
@@ -853,5 +958,200 @@ class SchedulingEngine
 
         // Batch insert for performance
         Schedule::insert($schedulesToInsert);
+    }
+
+    /**
+     * Min-Conflicts Local Search to repair conflicts in a chromosome.
+     */
+    private function repairChromosome(array $chromosome, int $maxSteps = 100): array
+    {
+        $currentChromosome = $chromosome;
+        
+        for ($step = 0; $step < $maxSteps; $step++) {
+            $conflictsList = $this->getDetailedConflicts($currentChromosome);
+            if (empty($conflictsList)) {
+                return $currentChromosome; // 0 conflicts reached!
+            }
+
+            // Pick a random conflicted session
+            $conflictedSessionIndex = $conflictsList[array_rand($conflictsList)];
+            $session = $this->sessions[$conflictedSessionIndex];
+            
+            // Find the best slot that minimizes conflicts
+            $validRooms = $this->getValidRoomsForSession($session);
+            $allowedSlots = $this->teacherValidSlots[$session['teacher_id']][$session['duration']] ?? [];
+            if (empty($allowedSlots)) {
+                for ($day = 1; $day <= $this->maxDays; $day++) {
+                    $validStartsForDuration = $this->validStarts[$session['duration']] ?? [1];
+                    foreach ($validStartsForDuration as $startPeriod) {
+                        $allowedSlots[] = ['day' => $day, 'start_period' => $startPeriod];
+                    }
+                }
+            }
+
+            $bestSlot = $currentChromosome[$conflictedSessionIndex];
+            $minConflicts = 9999;
+            $bestRoom = $bestSlot['room_id'];
+
+            foreach ($allowedSlots as $slot) {
+                foreach ($validRooms as $roomId) {
+                    $testChromosome = $currentChromosome;
+                    $testChromosome[$conflictedSessionIndex] = [
+                        'day' => $slot['day'],
+                        'start_period' => $slot['start_period'],
+                        'room_id' => $roomId,
+                    ];
+                    
+                    $conflictsCount = $this->countConflicts($testChromosome);
+                    if ($conflictsCount < $minConflicts) {
+                        $minConflicts = $conflictsCount;
+                        $bestSlot = $slot;
+                        $bestRoom = $roomId;
+                    }
+                }
+            }
+
+            $currentChromosome[$conflictedSessionIndex] = [
+                'day' => $bestSlot['day'],
+                'start_period' => $bestSlot['start_period'],
+                'room_id' => $bestRoom,
+            ];
+        }
+
+        return $currentChromosome;
+    }
+
+    private function countConflicts(array $chromosome): int
+    {
+        $hardConflicts = 0;
+        $teacherGrid = [];
+        $rombelGrid = [];
+        $roomGrid = [];
+
+        foreach ($this->sessions as $session) {
+            $idx = $session['session_index'];
+            $gene = $chromosome[$idx];
+            $day = $gene['day'];
+            $startPeriod = $gene['start_period'];
+            $roomId = $gene['room_id'];
+            $duration = $session['duration'];
+
+            // Room Type constraint
+            $room = $this->rooms[$roomId] ?? null;
+            if ($room) {
+                $hasLabRooms = !empty($this->validRoomsPerSubjectType['lab']);
+                $hasLapanganRooms = !empty($this->validRoomsPerSubjectType['olahraga']);
+
+                if ($session['subject_type'] === 'lab' && $hasLabRooms && $room['type'] !== 'lab') {
+                    $hardConflicts += 2;
+                }
+                if ($session['subject_type'] === 'olahraga' && $hasLapanganRooms && $room['type'] !== 'lapangan') {
+                    $hardConflicts += 2;
+                }
+            } else {
+                $hardConflicts += 5;
+            }
+
+            for ($offset = 0; $offset < $duration; $offset++) {
+                $period = $startPeriod + $offset;
+
+                if (in_array($period, $this->breakPeriods)) {
+                    $hardConflicts += 5;
+                }
+
+                $teacherAvailable = $this->teacherAvail[$session['teacher_id']][$day][$period] ?? true;
+                if (!$teacherAvailable) {
+                    $hardConflicts++;
+                }
+
+                if (isset($teacherGrid[$session['teacher_id']][$day][$period])) {
+                    $hardConflicts++;
+                } else {
+                    $teacherGrid[$session['teacher_id']][$day][$period] = $idx;
+                }
+
+                if (isset($rombelGrid[$session['rombel_id']][$day][$period])) {
+                    $hardConflicts++;
+                } else {
+                    $rombelGrid[$session['rombel_id']][$day][$period] = $idx;
+                }
+
+                if (isset($roomGrid[$roomId][$day][$period])) {
+                    $hardConflicts++;
+                } else {
+                    $roomGrid[$roomId][$day][$period] = $idx;
+                }
+            }
+        }
+
+        return $hardConflicts;
+    }
+
+    private function getDetailedConflicts(array $chromosome): array
+    {
+        $conflictedSessionIndices = [];
+        $teacherGrid = [];
+        $rombelGrid = [];
+        $roomGrid = [];
+
+        foreach ($this->sessions as $session) {
+            $idx = $session['session_index'];
+            $gene = $chromosome[$idx];
+            $day = $gene['day'];
+            $startPeriod = $gene['start_period'];
+            $roomId = $gene['room_id'];
+            $duration = $session['duration'];
+
+            $room = $this->rooms[$roomId] ?? null;
+            if ($room) {
+                $hasLabRooms = !empty($this->validRoomsPerSubjectType['lab']);
+                $hasLapanganRooms = !empty($this->validRoomsPerSubjectType['olahraga']);
+
+                if ($session['subject_type'] === 'lab' && $hasLabRooms && $room['type'] !== 'lab') {
+                    $conflictedSessionIndices[$idx] = true;
+                }
+                if ($session['subject_type'] === 'olahraga' && $hasLapanganRooms && $room['type'] !== 'lapangan') {
+                    $conflictedSessionIndices[$idx] = true;
+                }
+            } else {
+                $conflictedSessionIndices[$idx] = true;
+            }
+
+            for ($offset = 0; $offset < $duration; $offset++) {
+                $period = $startPeriod + $offset;
+
+                if (in_array($period, $this->breakPeriods)) {
+                    $conflictedSessionIndices[$idx] = true;
+                }
+
+                $teacherAvailable = $this->teacherAvail[$session['teacher_id']][$day][$period] ?? true;
+                if (!$teacherAvailable) {
+                    $conflictedSessionIndices[$idx] = true;
+                }
+
+                if (isset($teacherGrid[$session['teacher_id']][$day][$period])) {
+                    $conflictedSessionIndices[$idx] = true;
+                    $conflictedSessionIndices[$teacherGrid[$session['teacher_id']][$day][$period]] = true;
+                } else {
+                    $teacherGrid[$session['teacher_id']][$day][$period] = $idx;
+                }
+
+                if (isset($rombelGrid[$session['rombel_id']][$day][$period])) {
+                    $conflictedSessionIndices[$idx] = true;
+                    $conflictedSessionIndices[$rombelGrid[$session['rombel_id']][$day][$period]] = true;
+                } else {
+                    $rombelGrid[$session['rombel_id']][$day][$period] = $idx;
+                }
+
+                if (isset($roomGrid[$roomId][$day][$period])) {
+                    $conflictedSessionIndices[$idx] = true;
+                    $conflictedSessionIndices[$roomGrid[$roomId][$day][$period]] = true;
+                } else {
+                    $roomGrid[$roomId][$day][$period] = $idx;
+                }
+            }
+        }
+
+        return array_keys($conflictedSessionIndices);
     }
 }
