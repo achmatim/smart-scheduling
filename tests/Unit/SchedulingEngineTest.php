@@ -266,4 +266,72 @@ class SchedulingEngineTest extends TestCase
         // Same-day subject clash must be detected (conflicts count > 0)
         $this->assertGreaterThan(0, $eval['conflicts'], "Same-day subject duplicate not detected as conflict");
     }
+
+    /**
+     * Test that same-day teacher constraint is detected and penalized as soft conflict.
+     */
+    public function test_same_day_teacher_constraint_is_penalized(): void
+    {
+        $this->seed(SchoolDataSeeder::class);
+        $activeYear = AcademicYear::where('is_active', true)->first();
+
+        $engine = new SchedulingEngine($activeYear->id);
+        $engine->loadData();
+
+        $refEngine = new \ReflectionClass(SchedulingEngine::class);
+        
+        // Mock the sessions to only contain 2 sessions for the same Rombel by the same teacher
+        $firstTeacher = Teacher::first();
+        $firstRombel = \App\Models\Rombel::first();
+        $subjects = \App\Models\Subject::take(2)->get();
+        $firstRoom = Room::first();
+
+        $mockSessions = [
+            [
+                'session_index' => 0,
+                'lesson_id' => 1,
+                'rombel_id' => $firstRombel->id,
+                'subject_id' => $subjects[0]->id,
+                'teacher_id' => $firstTeacher->id,
+                'duration' => 2,
+                'subject_type' => 'umum',
+            ],
+            [
+                'session_index' => 1,
+                'lesson_id' => 2,
+                'rombel_id' => $firstRombel->id,
+                'subject_id' => $subjects[1]->id,
+                'teacher_id' => $firstTeacher->id,
+                'duration' => 2,
+                'subject_type' => 'umum',
+            ]
+        ];
+
+        $sessionsProp = $refEngine->getProperty('sessions');
+        $sessionsProp->setAccessible(true);
+        $sessionsProp->setValue($engine, $mockSessions);
+
+        // Construct chromosome of size 2
+        // Scheduled on Day 2 (Tuesday) to avoid Teacher 1 Monday unavailability.
+        // Period 1 (1-2) and Period 5 (5-6) to avoid break periods (4 and 7).
+        $chromosome = [
+            0 => [
+                'day' => 2,
+                'start_period' => 1,
+                'room_id' => $firstRombel->room_id ?? $firstRoom->id,
+            ],
+            1 => [
+                'day' => 2,
+                'start_period' => 5,
+                'room_id' => $firstRombel->room_id ?? $firstRoom->id,
+            ]
+        ];
+
+        // Evaluate fitness
+        $eval = $engine->evaluateFitness($chromosome);
+
+        // Assert 0 hard conflicts, and soft_conflicts > 0 (for the same-day teacher)
+        $this->assertEquals(0, $eval['conflicts']);
+        $this->assertGreaterThan(0, $eval['soft_conflicts']);
+    }
 }

@@ -608,9 +608,11 @@ class SchedulingEngine
         $rombelGrid = [];
         $roomGrid = [];
         $rombelSubjectDayGrid = [];
+        $rombelTeacherDayGrid = [];
 
         $hardConflicts = 0;
         $softConflicts = 0;
+        $rombelSameTeacherDayCount = 0;
 
         foreach ($this->sessions as $session) {
             $gene = $chromosome[$session['session_index']];
@@ -624,6 +626,13 @@ class SchedulingEngine
                 $hardConflicts++;
             } else {
                 $rombelSubjectDayGrid[$session['rombel_id']][$session['subject_id']][$day] = $session['session_index'];
+            }
+
+            // Same-day teacher constraint (Soft Constraint)
+            if (isset($rombelTeacherDayGrid[$session['rombel_id']][$session['teacher_id']][$day])) {
+                $rombelSameTeacherDayCount++;
+            } else {
+                $rombelTeacherDayGrid[$session['rombel_id']][$session['teacher_id']][$day] = true;
             }
 
             // 1. Check Period Overflow (Hard Constraint)
@@ -747,15 +756,16 @@ class SchedulingEngine
         // Calculate fitness
         // Hard conflicts are weighted heavily (multiplied by 1,000,000) to ensure absolute prioritization over soft constraints.
         // Teacher gaps are penalized (100) to minimize empty slots for teachers.
+        // Same-day teacher duplicate for same class is penalized (50) to distribute teachers across different days.
         // Rombel gaps are penalized (10).
         // Rombel start gaps are penalized (5) to encourage starting at Jam 1.
-        $totalPenalty = ($hardConflicts * 1000000) + ($teacherGaps * 100) + ($rombelGaps * 10) + ($rombelStartGaps * 5);
+        $totalPenalty = ($hardConflicts * 1000000) + ($teacherGaps * 100) + ($rombelSameTeacherDayCount * 50) + ($rombelGaps * 10) + ($rombelStartGaps * 5);
         $fitness = 1.0 / (1.0 + $totalPenalty);
 
         return [
             'fitness' => $fitness,
             'conflicts' => $hardConflicts,
-            'soft_conflicts' => $teacherGaps + $rombelGaps + $rombelStartGaps,
+            'soft_conflicts' => $teacherGaps + $rombelSameTeacherDayCount + $rombelGaps + $rombelStartGaps,
         ];
     }
 
