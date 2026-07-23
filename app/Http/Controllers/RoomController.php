@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Room;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Services\TenantManager;
 
 class RoomController extends Controller
 {
@@ -16,7 +18,12 @@ class RoomController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'code' => 'required|string|max:20|unique:rooms,code',
+            'code' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('rooms', 'code')->where('school_id', TenantManager::getSchoolId())
+            ],
             'name' => 'required|string|max:255',
             'type' => 'required|in:umum,lab,lapangan',
             'capacity' => 'nullable|integer|min:1',
@@ -35,7 +42,12 @@ class RoomController extends Controller
     public function update(Request $request, Room $room)
     {
         $request->validate([
-            'code' => 'required|string|max:20|unique:rooms,code,' . $room->id,
+            'code' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('rooms', 'code')->ignore($room->id)->where('school_id', TenantManager::getSchoolId())
+            ],
             'name' => 'required|string|max:255',
             'type' => 'required|in:umum,lab,lapangan',
             'capacity' => 'nullable|integer|min:1',

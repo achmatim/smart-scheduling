@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Rombel;
 use App\Models\Room;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Services\TenantManager;
 
 class RombelController extends Controller
 {
@@ -18,8 +20,13 @@ class RombelController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'name' => 'required|string|max:50|unique:rombels,name',
-            'grade' => 'required|integer|in:7,8,9',
+            'name' => [
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('rombels', 'name')->where('school_id', TenantManager::getSchoolId())
+            ],
+            'grade' => 'required|integer|in:7,8,9,10,11,12',
             'room_id' => 'nullable|exists:rooms,id',
         ]);
 
@@ -35,8 +42,13 @@ class RombelController extends Controller
     public function update(Request $request, Rombel $rombel)
     {
         $request->validate([
-            'name' => 'required|string|max:50|unique:rombels,name,' . $rombel->id,
-            'grade' => 'required|integer|in:7,8,9',
+            'name' => [
+                'required',
+                'string',
+                'max:50',
+                Rule::unique('rombels', 'name')->ignore($rombel->id)->where('school_id', TenantManager::getSchoolId())
+            ],
+            'grade' => 'required|integer|in:7,8,9,10,11,12',
             'room_id' => 'nullable|exists:rooms,id',
         ]);
 

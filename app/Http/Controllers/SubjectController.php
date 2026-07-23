@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Subject;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Services\TenantManager;
 
 class SubjectController extends Controller
 {
@@ -16,7 +18,12 @@ class SubjectController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'code' => 'required|string|max:10|unique:subjects,code',
+            'code' => [
+                'required',
+                'string',
+                'max:10',
+                Rule::unique('subjects', 'code')->where('school_id', TenantManager::getSchoolId())
+            ],
             'name' => 'required|string|max:255',
             'type' => 'required|in:umum,praktek,olahraga',
         ]);
@@ -33,7 +40,12 @@ class SubjectController extends Controller
     public function update(Request $request, Subject $subject)
     {
         $request->validate([
-            'code' => 'required|string|max:10|unique:subjects,code,' . $subject->id,
+            'code' => [
+                'required',
+                'string',
+                'max:10',
+                Rule::unique('subjects', 'code')->ignore($subject->id)->where('school_id', TenantManager::getSchoolId())
+            ],
             'name' => 'required|string|max:255',
             'type' => 'required|in:umum,praktek,olahraga',
         ]);

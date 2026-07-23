@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Period;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use App\Services\TenantManager;
 
 class PeriodController extends Controller
 {
@@ -22,7 +24,12 @@ class PeriodController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'period_number' => 'required|integer|min:1|unique:periods,period_number',
+            'period_number' => [
+                'required',
+                'integer',
+                'min:1',
+                Rule::unique('periods', 'period_number')->where('school_id', TenantManager::getSchoolId())
+            ],
             'start_time' => 'required|string|regex:/^\d{2}:\d{2}$/', // e.g. "07:15"
             'end_time' => 'required|string|regex:/^\d{2}:\d{2}$/',
             'is_break' => 'boolean',
@@ -44,7 +51,12 @@ class PeriodController extends Controller
     public function update(Request $request, Period $period)
     {
         $request->validate([
-            'period_number' => 'required|integer|min:1|unique:periods,period_number,' . $period->id,
+            'period_number' => [
+                'required',
+                'integer',
+                'min:1',
+                Rule::unique('periods', 'period_number')->ignore($period->id)->where('school_id', TenantManager::getSchoolId())
+            ],
             'start_time' => 'required|string|regex:/^\d{2}:\d{2}$/',
             'end_time' => 'required|string|regex:/^\d{2}:\d{2}$/',
             'is_break' => 'boolean',
