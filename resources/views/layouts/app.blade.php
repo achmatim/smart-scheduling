@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Sistem Penjadwalan SMP Manggala</title>
+    <title>Sistem Penjadwalan - {{ Auth::user()->school->name ?? 'Yayasan Manggala' }}</title>
     
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -20,7 +20,15 @@
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="sidebar-logo">
-            <span>SMP</span> Manggala
+            @php
+                $schoolName = Auth::user()->school->name ?? 'Yayasan Manggala';
+                $parts = explode(' ', $schoolName, 2);
+            @endphp
+            @if(count($parts) === 2)
+                <span>{{ $parts[0] }}</span> {{ $parts[1] }}
+            @else
+                {{ $schoolName }}
+            @endif
         </div>
         <ul class="sidebar-menu">
             <li class="sidebar-item {{ Request::routeIs('dashboard') ? 'active' : '' }}">
@@ -85,7 +93,7 @@
             </li>
         </ul>
         <div class="sidebar-footer">
-            SMP Manggala &copy; 2026
+            {{ Auth::user()->school->name ?? 'Yayasan Manggala' }} &copy; 2026
         </div>
     </aside>
 
@@ -94,8 +102,11 @@
         
         <!-- Topbar -->
         <header class="topbar">
-            <div class="page-title">
-                @yield('page_title', 'Sistem Penjadwalan Sekolah')
+            <div class="page-title" style="display: flex; align-items: center; gap: 8px;">
+                @yield('page_title', 'Sistem Penjadwalan')
+                <span class="badge-school" style="font-size: 13px; padding: 4px 10px; font-weight: 600; background-color: rgba(99, 102, 241, 0.15); color: #818cf8; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.25);">
+                    {{ Auth::user()->school->name ?? 'Yayasan Manggala' }}
+                </span>
             </div>
             <div class="topbar-right">
                 @isset($activeYear)

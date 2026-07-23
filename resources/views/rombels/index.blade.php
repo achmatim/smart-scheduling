@@ -5,7 +5,7 @@
 @section('content')
     <div class="card">
         <div class="card-header">
-            <h3 class="card-title">Daftar Rombongan Belajar (Kelas) SMP Manggala</h3>
+            <h3 class="card-title">Daftar Rombongan Belajar (Kelas) {{ Auth::user()->school->name ?? 'Yayasan Manggala' }}</h3>
             <button class="btn btn-primary" onclick="openAddModal()">+ Tambah Rombel</button>
         </div>
         <div class="card-body">

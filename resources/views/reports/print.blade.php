@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cetak Laporan Jadwal Pelajaran - SMP Manggala</title>
+    <title>Cetak Laporan Jadwal Pelajaran - {{ Auth::user()->school->name ?? 'Yayasan Manggala' }}</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -68,7 +68,7 @@
 
     <div class="header-print">
         <h2>Laporan Jadwal Pelajaran</h2>
-        <h2>SMP Manggala</h2>
+        <h2>{{ Auth::user()->school->name ?? 'Yayasan Manggala' }}</h2>
         <p>Tahun Ajaran: {{ $selectedYear->year }} - Semester {{ $selectedYear->semester }}</p>
         <p style="margin-top:4px; font-weight:bold; font-size:12px;">Urutan: Berdasarkan {{ $sortBy === 'teacher' ? 'Nama Guru' : ($sortBy === 'rombel' ? 'Kelas' : ($sortBy === 'subject' ? 'Mata Pelajaran' : 'Hari & Sesi')) }}</p>
     </div>
