@@ -282,7 +282,7 @@ class ScheduleController extends Controller
         ]);
 
         // Dispatch background job
-        GenerateScheduleJob::dispatch($activeYear->id, $job->id, [
+        GenerateScheduleJob::dispatch($activeYear->id, $job->id, Auth::user()->school_id, [
             'pop_size' => $popSize,
             'max_generations' => $maxGenerations
         ]);

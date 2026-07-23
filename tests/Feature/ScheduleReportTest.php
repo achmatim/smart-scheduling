@@ -30,7 +30,9 @@ class ScheduleReportTest extends TestCase
     {
         parent::setUp();
         
-        $this->user = User::factory()->create();
+        $school = \App\Models\School::create(['name' => 'SMP Manggala']);
+        $this->user = User::factory()->create(['school_id' => $school->id]);
+        \App\Services\TenantManager::setSchoolId($school->id);
         
         $this->ay = AcademicYear::create([
             'year' => '2026/2027',
@@ -80,6 +82,12 @@ class ScheduleReportTest extends TestCase
             'end_period' => 1,
             'status' => 'draft',
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        \App\Services\TenantManager::setSchoolId(null);
+        parent::tearDown();
     }
 
     public function test_report_routes_redirect_guests()

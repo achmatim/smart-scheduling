@@ -7,11 +7,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Teacher extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'nip',
         'name',
         'email',
         'phone',
+        'school_id',
     ];
 
     public function availabilities(): HasMany

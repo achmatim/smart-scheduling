@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Lesson extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'academic_year_id',
         'rombel_id',
@@ -14,6 +16,7 @@ class Lesson extends Model
         'teacher_id',
         'total_hours',
         'split_hours',
+        'school_id',
     ];
 
     public function academicYear(): BelongsTo

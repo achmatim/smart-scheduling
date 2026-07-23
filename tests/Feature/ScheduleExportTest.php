@@ -22,7 +22,9 @@ class ScheduleExportTest extends TestCase
     public function test_authenticated_user_can_export_excel()
     {
         // 1. Seed necessary records
-        $user = User::factory()->create();
+        $school = \App\Models\School::create(['name' => 'SMP Manggala']);
+        $user = User::factory()->create(['school_id' => $school->id]);
+        \App\Services\TenantManager::setSchoolId($school->id);
         
         $ay = AcademicYear::create([
             'year' => '2026/2027',
@@ -55,5 +57,7 @@ class ScheduleExportTest extends TestCase
         $response->assertHeader('Content-Disposition', 'attachment; filename="jadwal_keseluruhan_per_kelas.xls"');
         $response->assertSeeText('JADWAL PELAJARAN KESELURUHAN SMP MANGGALA');
         $response->assertSeeText('KELAS: VII A');
+
+        \App\Services\TenantManager::setSchoolId(null);
     }
 }

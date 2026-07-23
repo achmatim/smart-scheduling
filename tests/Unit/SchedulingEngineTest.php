@@ -7,7 +7,11 @@ use App\Models\Room;
 use App\Models\Teacher;
 use App\Models\Lesson;
 use App\Models\TeacherAvailability;
+use App\Models\School;
+use App\Models\Rombel;
+use App\Models\Subject;
 use App\Services\SchedulingEngine;
+use App\Services\TenantManager;
 use Database\Seeders\SchoolDataSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -16,14 +20,31 @@ class SchedulingEngineTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // 1. Run seeder to seed all 3 schools and admins
+        $this->seed(\Database\Seeders\DatabaseSeeder::class);
+
+        // 2. Set context to SMP Manggala for the unit tests
+        $school = School::where('name', 'SMP Manggala')->first();
+        TenantManager::setSchoolId($school->id);
+    }
+
+    protected function tearDown(): void
+    {
+        // Clear context
+        TenantManager::setSchoolId(null);
+
+        parent::tearDown();
+    }
+
     /**
      * Test database load and session splitting.
      */
     public function test_scheduling_engine_loads_data_correctly(): void
     {
-        // 1. Run seeder
-        $this->seed(SchoolDataSeeder::class);
-
         $activeYear = AcademicYear::where('is_active', true)->first();
 
         // 2. Instantiate engine
@@ -45,18 +66,8 @@ class SchedulingEngineTest extends TestCase
         $teacherAvailProp->setAccessible(true);
         $teacherAvail = $teacherAvailProp->getValue($engine);
 
-        // 6 Rombels, each has 23 JP. Some split into 2 JP, some into 3 JP.
-        // Let's count sessions. 
-        // Per rombel: 
-        // - MAT (4 JP split 2,2) -> 2 sessions
-        // - ING (4 JP split 2,2) -> 2 sessions
-        // - IPA (4 JP split 2,2) -> 2 sessions
-        // - IND (4 JP split 2,2) -> 2 sessions
-        // - IPS (3 JP split 3) -> 1 session
-        // - PJK (2 JP split 2) -> 1 session
-        // - INF (2 JP split 2) -> 1 session
-        // Total = 2 + 2 + 2 + 2 + 1 + 1 + 1 = 11 sessions per rombel.
-        // With 6 rombels, total sessions = 11 * 6 = 66 sessions.
+        // 6 Rombels, each has 23 JP.
+        // Total sessions = 11 * 6 = 66 sessions.
         $this->assertCount(66, $sessions);
         $this->assertCount(9, $rooms); // 9 rooms seeded
         $this->assertCount(9, $teacherAvail); // 9 teachers availability seeded
@@ -67,7 +78,6 @@ class SchedulingEngineTest extends TestCase
      */
     public function test_fitness_evaluation_detects_clashes(): void
     {
-        $this->seed(SchoolDataSeeder::class);
         $activeYear = AcademicYear::where('is_active', true)->first();
 
         $engine = new SchedulingEngine($activeYear->id);
@@ -80,7 +90,6 @@ class SchedulingEngineTest extends TestCase
         $sessions = $sessionsProp->getValue($engine);
 
         // Let's build a chromosome where EVERY session is scheduled at Day 1, Start Period 1, Room 1.
-        // This is a worst-case scenario with massive clashing.
         $clashingChromosome = [];
         $firstRoom = Room::first();
 
@@ -105,7 +114,6 @@ class SchedulingEngineTest extends TestCase
      */
     public function test_teacher_availability_constraint_is_never_violated(): void
     {
-        $this->seed(SchoolDataSeeder::class);
         $activeYear = AcademicYear::where('is_active', true)->first();
 
         // Let's pick a teacher and make them unavailable on Day 1, periods 6, 7, and 8.
@@ -127,11 +135,6 @@ class SchedulingEngineTest extends TestCase
         $this->assertArrayHasKey($teacher->id, $teacherValidSlots);
 
         // For duration 2 on Day 1:
-        // Periods 6, 7, 8 are unavailable.
-        // Valid starts (from validStarts for duration 2):
-        // Break is period 5 (istirahat) and 8 (istirahat).
-        // Let's check which starts on Day 1 are in teacherValidSlots for duration 2.
-        // It must NOT contain start_period 5 (break), 6 (6-7 overlaps with 6,7 unavailable), 7 (7-8 overlaps with 7,8 unavailable), 8 (break).
         $dur2Slots = $teacherValidSlots[$teacher->id][2] ?? [];
         foreach ($dur2Slots as $slot) {
             if ($slot['day'] === 1) {
@@ -170,7 +173,6 @@ class SchedulingEngineTest extends TestCase
      */
     public function test_rombel_designated_room_is_respected_for_general_subjects(): void
     {
-        $this->seed(SchoolDataSeeder::class);
         $activeYear = AcademicYear::where('is_active', true)->first();
 
         $engine = new SchedulingEngine($activeYear->id);
@@ -186,14 +188,10 @@ class SchedulingEngineTest extends TestCase
         $getValidRoomsMethod->setAccessible(true);
 
         foreach ($sessions as $session) {
-            // Find the Rombel
-            $rombel = \App\Models\Rombel::find($session['rombel_id']);
-            
-            // Invoke getValidRoomsForSession
+            $rombel = Rombel::find($session['rombel_id']);
             $validRooms = $getValidRoomsMethod->invokeArgs($engine, [$session]);
 
             if ($session['subject_type'] === 'umum') {
-                // Should only contain the designated room of the rombel
                 $this->assertCount(1, $validRooms);
                 $this->assertEquals($rombel->room_id, $validRooms[0]);
             }
@@ -205,7 +203,6 @@ class SchedulingEngineTest extends TestCase
      */
     public function test_same_day_subject_constraint_is_enforced(): void
     {
-        $this->seed(SchoolDataSeeder::class);
         $activeYear = AcademicYear::where('is_active', true)->first();
 
         $engine = new SchedulingEngine($activeYear->id);
@@ -217,7 +214,6 @@ class SchedulingEngineTest extends TestCase
         $sessionsProp->setAccessible(true);
         $sessions = $sessionsProp->getValue($engine);
 
-        // Find two sessions for the same Rombel and same Subject (e.g. VII A Math)
         $sameSubjectSessions = [];
 
         foreach ($sessions as $session) {
@@ -235,11 +231,9 @@ class SchedulingEngineTest extends TestCase
 
         $this->assertNotEmpty($chosenPair, "Must have at least one split subject with multiple sessions");
 
-        // Construct a chromosome where these two same-subject sessions are scheduled on the SAME DAY
         $chromosome = [];
         $firstRoom = Room::first();
 
-        // Initialize all sessions to different days to isolate the clash
         foreach ($sessions as $session) {
             $chromosome[$session['session_index']] = [
                 'day' => ($session['session_index'] % 5) + 1,
@@ -248,7 +242,6 @@ class SchedulingEngineTest extends TestCase
             ];
         }
 
-        // Force the chosen pair to be on Day 1, in different non-overlapping slots (Period 1 and Period 3)
         $chromosome[$chosenPair[0]['session_index']] = [
             'day' => 1,
             'start_period' => 1,
@@ -263,7 +256,6 @@ class SchedulingEngineTest extends TestCase
         // Evaluate fitness
         $eval = $engine->evaluateFitness($chromosome);
 
-        // Same-day subject clash must be detected (conflicts count > 0)
         $this->assertGreaterThan(0, $eval['conflicts'], "Same-day subject duplicate not detected as conflict");
     }
 
@@ -272,7 +264,6 @@ class SchedulingEngineTest extends TestCase
      */
     public function test_same_day_teacher_constraint_is_penalized(): void
     {
-        $this->seed(SchoolDataSeeder::class);
         $activeYear = AcademicYear::where('is_active', true)->first();
 
         $engine = new SchedulingEngine($activeYear->id);
@@ -280,11 +271,10 @@ class SchedulingEngineTest extends TestCase
 
         $refEngine = new \ReflectionClass(SchedulingEngine::class);
         
-        // Mock the sessions to only contain 2 sessions for the same Rombel by the same teacher
-        $firstTeacher = Teacher::first();
-        $firstRombel = \App\Models\Rombel::first();
-        $subjects = \App\Models\Subject::take(2)->get();
-        $firstRoom = Room::first();
+        $firstTeacher = Teacher::orderBy('id', 'asc')->first();
+        $firstRombel = Rombel::orderBy('id', 'asc')->first();
+        $subjects = Subject::orderBy('id', 'asc')->take(2)->get();
+        $firstRoom = Room::orderBy('id', 'asc')->first();
 
         $mockSessions = [
             [
@@ -311,9 +301,6 @@ class SchedulingEngineTest extends TestCase
         $sessionsProp->setAccessible(true);
         $sessionsProp->setValue($engine, $mockSessions);
 
-        // Construct chromosome of size 2
-        // Scheduled on Day 2 (Tuesday) to avoid Teacher 1 Monday unavailability.
-        // Period 1 (1-2) and Period 5 (5-6) to avoid break periods (4 and 7).
         $chromosome = [
             0 => [
                 'day' => 2,
@@ -330,7 +317,6 @@ class SchedulingEngineTest extends TestCase
         // Evaluate fitness
         $eval = $engine->evaluateFitness($chromosome);
 
-        // Assert 0 hard conflicts, and soft_conflicts > 0 (for the same-day teacher)
         $this->assertEquals(0, $eval['conflicts']);
         $this->assertGreaterThan(0, $eval['soft_conflicts']);
     }

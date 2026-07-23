@@ -7,10 +7,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Subject extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'code',
         'name',
         'type',
+        'school_id',
     ];
 
     public function lessons(): HasMany

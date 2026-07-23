@@ -7,10 +7,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Rombel extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'name',
         'grade',
         'room_id',
+        'school_id',
     ];
 
     public function room(): \Illuminate\Database\Eloquent\Relations\BelongsTo

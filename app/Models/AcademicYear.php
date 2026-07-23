@@ -7,11 +7,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AcademicYear extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'year',
         'semester',
         'is_active',
         'is_locked',
+        'school_id',
     ];
 
     protected $casts = [

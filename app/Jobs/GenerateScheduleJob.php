@@ -18,15 +18,17 @@ class GenerateScheduleJob implements ShouldQueue
 
     private $academicYearId;
     private $schedulingJobId;
+    private $schoolId;
     private $config;
 
     /**
      * Create a new job instance.
      */
-    public function __construct(int $academicYearId, int $schedulingJobId, array $config = [])
+    public function __construct(int $academicYearId, int $schedulingJobId, int $schoolId, array $config = [])
     {
         $this->academicYearId = $academicYearId;
         $this->schedulingJobId = $schedulingJobId;
+        $this->schoolId = $schoolId;
         $this->config = $config;
     }
 
@@ -35,6 +37,9 @@ class GenerateScheduleJob implements ShouldQueue
      */
     public function handle(): void
     {
+        // Scope all queries in this background execution to the job's school
+        \App\Services\TenantManager::setSchoolId($this->schoolId);
+
         $jobModel = SchedulingJob::find($this->schedulingJobId);
         if (!$jobModel) {
             Log::error("SchedulingJob with ID {$this->schedulingJobId} not found.");

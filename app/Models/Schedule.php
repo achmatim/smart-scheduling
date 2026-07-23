@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Schedule extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'academic_year_id',
         'rombel_id',
@@ -17,6 +19,7 @@ class Schedule extends Model
         'start_period',
         'end_period',
         'status',
+        'school_id',
     ];
 
     public function academicYear(): BelongsTo

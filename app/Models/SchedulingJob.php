@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SchedulingJob extends Model
 {
+    use \App\Traits\BelongsToSchool;
+
     protected $fillable = [
         'academic_year_id',
         'status',
@@ -16,6 +18,7 @@ class SchedulingJob extends Model
         'best_fitness',
         'conflicts',
         'error_message',
+        'school_id',
     ];
 
     public function academicYear(): BelongsTo
