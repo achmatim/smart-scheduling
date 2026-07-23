@@ -15,6 +15,13 @@ class TenantManager
     private static ?int $schoolId = null;
 
     /**
+     * Flag to prevent infinite recursion during Auth check queries.
+     *
+     * @var bool
+     */
+    private static bool $resolving = false;
+
+    /**
      * Explicitly set the active school ID.
      */
     public static function setSchoolId(?int $schoolId): void
@@ -34,10 +41,23 @@ class TenantManager
             return self::$schoolId;
         }
 
-        if (Auth::check() && Auth::user()->school_id !== null) {
-            return (int) Auth::user()->school_id;
+        if (self::$resolving) {
+            return null;
         }
 
+        self::$resolving = true;
+
+        try {
+            if (Auth::check() && Auth::user()->school_id !== null) {
+                $id = (int) Auth::user()->school_id;
+                self::$resolving = false;
+                return $id;
+            }
+        } catch (\Throwable $e) {
+            // Prevent crash in case DB/Auth is not ready
+        }
+
+        self::$resolving = false;
         return null;
     }
 }
