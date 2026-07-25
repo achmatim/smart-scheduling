@@ -10,6 +10,7 @@ use App\Models\Schedule;
 use App\Models\SchedulingJob;
 use App\Models\Teacher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class ScheduleController extends Controller
 {
